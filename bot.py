@@ -202,12 +202,11 @@ async def run_pick(interaction: discord.Interaction, type_key: str, so_bo: int):
         embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
         embed.timestamp = datetime.utcnow()
 
-        # Gửi embed trước
         await interaction.followup.send(embed=embed)
 
-        # Gửi SMS riêng thành 1 tin nhắn text độc lập — bấm giữ là copy gọn
+        # Gửi SMS thuần, không markdown — bấm giữ → copy → paste vào 9969
         single_sms = build_sms_full(cfg, all_sets)
-        await interaction.followup.send(f"📱 **Copy → gửi 9969:**\n```{single_sms}```")
+        await interaction.followup.send(single_sms)
 
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
