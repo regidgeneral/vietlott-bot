@@ -262,14 +262,16 @@ async def run_bao535(interaction, bao_key, so_bo):
             inline=False
         )
 
-        all_sms = []
-        seen = set()
+        seen, s_parts = set(), []
         for i in range(so_bo):
             if info["type"] == "bc":
                 main_nums = generate_nums(freq, 35, info["n_main"], seen)
                 seen.add(tuple(main_nums))
                 special = sorted_sp[0][0]
-                sms = sms_bao535_bc(bao_key, main_nums, special)
+                # Chỉ lấy phần "S xx xx xx-yy" không kèm prefix
+                main_str = " ".join(f"{n:02d}" for n in main_nums[:-1])
+                last = f"{main_nums[-1]:02d}-{special:02d}"
+                s_parts.append(f"S {main_str} {last}")
                 embed.add_field(
                     name=f"Bộ {i+1}",
                     value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  Đặc biệt: `{special:02d}`",
@@ -279,22 +281,22 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_nums = generate_nums(freq, 35, 5, seen)
                 seen.add(tuple(main_nums))
                 specials_picked = [n for n, _ in sorted_sp[:info["n_sp"]]]
-                sms = sms_bao535_bd(bao_key, main_nums, specials_picked)
+                main_str = " ".join(f"{n:02d}" for n in main_nums)
+                sp_str = f"{specials_picked[0]:02d}" + (" " + " ".join(f"{n:02d}" for n in specials_picked[1:]) if len(specials_picked) > 1 else "")
+                s_parts.append(f"S {main_str}-{sp_str}")
                 embed.add_field(
                     name=f"Bộ {i+1}",
                     value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  Đặc biệt: {' '.join(f'`{n:02d}`' for n in specials_picked)}",
                     inline=False
                 )
-            all_sms.append(sms)
 
         tong = so_bo * info["gia"]
         embed.add_field(name="💰 Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
         embed.timestamp = datetime.utcnow()
 
-        # Gửi từng SMS riêng nếu nhiều bộ
-        # Gộp tất cả bộ thành 1 tin nhắn SMS duy nhất
-        full_sms = " ".join(all_sms)
+        # 1 SMS duy nhất: 535 K1 BC7 S xx xx-yy S xx xx-yy ...
+        full_sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
         await interaction.followup.send(embed=embed, view=make_button(full_sms))
 
     except Exception as e:
