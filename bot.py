@@ -7,20 +7,17 @@ import re
 import os
 from datetime import datetime
 
-# ==========================================
-# TOKEN LẤY TỪ BIẾN MÔI TRƯỜNG (Railway)
-# ==========================================
 TOKEN = os.environ.get("DISCORD_TOKEN", "")
 
-# ==========================================
-# CẤU HÌNH LOẠI VÉ
-# ==========================================
 CONFIGS = {
     "535": {"n": 35, "k": 5, "has_special": True, "special_n": 12, "label": "Lotto 5/35",
+            "sms_prefix": "535", "sms_type": "K1 S",
             "url": "https://www.lotto-8.com/Vietnam/listltoVM35.asp", "pages": 5},
     "645": {"n": 45, "k": 6, "has_special": False, "label": "Mega 6/45",
+            "sms_prefix": "645", "sms_type": "K1 S",
             "url": "https://www.lotto-8.com/Vietnam/listltoVM45.asp", "pages": 5},
     "655": {"n": 55, "k": 6, "has_special": True, "special_n": 10, "label": "Power 6/55",
+            "sms_prefix": "655", "sms_type": "K1 S",
             "url": "https://www.lotto-8.com/Vietnam/listltoVM55.asp", "pages": 5},
 }
 
@@ -28,11 +25,15 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
+# Cache dữ liệu để không fetch lại mỗi lần
+_cache = {}
 
-# ==========================================
-# HÀM LẤY DỮ LIỆU LỊCH SỬ
-# ==========================================
+
 def fetch_history(cfg):
+    key = cfg["sms_prefix"]
+    if key in _cache:
+        return _cache[key]
+
     all_numbers = []
     all_specials = []
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -60,6 +61,8 @@ def fetch_history(cfg):
                                 all_specials.append(val)
         except Exception:
             continue
+
+    _cache[key] = (all_numbers, all_specials)
     return all_numbers, all_specials
 
 
@@ -91,7 +94,8 @@ def weighted_pick(pool, weights, count, exclude=None):
     return picked
 
 
-def generate_suggestion(freq, cfg, special_freq=None):
+def generate_one(freq, cfg, special_freq=None, exclude_sets=None):
+    """Tạo 1 bộ số, tránh trùng với các bộ đã tạo trước"""
     n = cfg["n"]
     k = cfg["k"]
     avg = sum(freq.values()) / n
@@ -102,14 +106,19 @@ def generate_suggestion(freq, cfg, special_freq=None):
     cold_weights = [max(1, avg * 2 - freq[num]) for num in cold_pool]
     n_hot = (k + 1) // 2
     n_cold = k // 2
-    picked = set()
-    hot_picks = weighted_pick(hot_pool, hot_weights, n_hot)
-    picked.update(hot_picks)
-    cold_picks = weighted_pick(cold_pool, cold_weights, n_cold, exclude=picked)
-    picked.update(cold_picks)
-    while len(picked) < k:
-        picked.add(random.randint(1, n))
-    result = sorted(picked)
+
+    for _ in range(20):  # thử tối đa 20 lần để tránh trùng
+        picked = set()
+        hot_picks = weighted_pick(hot_pool, hot_weights, n_hot)
+        picked.update(hot_picks)
+        cold_picks = weighted_pick(cold_pool, cold_weights, n_cold, exclude=picked)
+        picked.update(cold_picks)
+        while len(picked) < k:
+            picked.add(random.randint(1, n))
+        result = tuple(sorted(picked))
+        if exclude_sets is None or result not in exclude_sets:
+            break
+
     special = None
     if cfg.get("has_special") and special_freq:
         sp_sorted = sorted(special_freq.items(), key=lambda x: x[1], reverse=True)
@@ -117,11 +126,15 @@ def generate_suggestion(freq, cfg, special_freq=None):
         sp_weights = [c for _, c in sp_sorted]
         sp = weighted_pick(sp_pool, sp_weights, 1)
         special = sp[0] if sp else random.randint(1, cfg.get("special_n", 12))
-    return result, special
+
+    return list(result), special
 
 
-def format_balls(numbers):
-    return "  ".join(f"`{str(n).zfill(2)}`" for n in numbers)
+def build_sms(cfg, numbers, special=None):
+    nums_str = " ".join(f"{n:02d}" for n in numbers)
+    if cfg.get("has_special") and special:
+        return f"{cfg['sms_prefix']} {cfg['sms_type']} {nums_str} {special:02d}"
+    return f"{cfg['sms_prefix']} {cfg['sms_type']} {nums_str}"
 
 
 def make_bar(count, max_count, width=10):
@@ -129,7 +142,10 @@ def make_bar(count, max_count, width=10):
     return "█" * filled + "░" * (width - filled)
 
 
-async def run_pick(interaction: discord.Interaction, type_key: str):
+# ==========================================
+# XỬ LÝ LỆNH PICK
+# ==========================================
+async def run_pick(interaction: discord.Interaction, type_key: str, so_bo: int):
     cfg = CONFIGS[type_key]
     await interaction.response.defer(thinking=True)
     try:
@@ -137,28 +153,68 @@ async def run_pick(interaction: discord.Interaction, type_key: str):
         if len(numbers) < cfg["k"] * 5:
             await interaction.followup.send("⚠️ Không lấy được đủ dữ liệu. Thử lại sau nhé!")
             return
+
         freq = compute_freq(numbers, cfg["n"])
         special_freq = compute_freq(specials, cfg.get("special_n", 12)) if specials else None
         draws = len(numbers) // cfg["k"]
         sorted_freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-        suggestion, special = generate_suggestion(freq, cfg, special_freq)
-        embed = discord.Embed(title=f"🎰 Gợi ý bộ số — {cfg['label']}", color=0x1D9E75)
-        embed.add_field(name=f"Bộ {cfg['k']} số chính", value=format_balls(suggestion), inline=False)
-        if special:
-            label = "Số đặc biệt" if type_key == "535" else "Số Power"
-            embed.add_field(name=label, value=f"`{special:02d}`", inline=True)
-        embed.add_field(name="Phân tích từ", value=f"{draws} kỳ lịch sử", inline=True)
-        hot_str = ", ".join(f"`{n:02d}`" for n, _ in sorted_freq[:3])
-        cold_str = ", ".join(f"`{n:02d}`" for n, _ in sorted_freq[-3:])
+
+        embed = discord.Embed(
+            title=f"🎰 Gợi ý {so_bo} bộ số — {cfg['label']}",
+            color=0x1D9E75
+        )
+        embed.add_field(
+            name="📊 Phân tích từ",
+            value=f"{draws} kỳ lịch sử",
+            inline=True
+        )
+        hot_str = " ".join(f"`{n:02d}`" for n, _ in sorted_freq[:3])
+        cold_str = " ".join(f"`{n:02d}`" for n, _ in sorted_freq[-3:])
         embed.add_field(name="🔥 Hot", value=hot_str, inline=True)
         embed.add_field(name="🧊 Cold", value=cold_str, inline=True)
-        embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
+
+        sms_lines = []
+        seen = set()
+
+        for i in range(so_bo):
+            nums, special = generate_one(freq, cfg, special_freq, exclude_sets=seen)
+            seen.add(tuple(nums))
+
+            nums_display = " ".join(f"`{n:02d}`" for n in nums)
+            sms_cmd = build_sms(cfg, nums, special)
+
+            field_val = f"{nums_display}"
+            if special:
+                sp_label = "Đặc biệt" if type_key == "535" else "Power"
+                field_val += f"\n{sp_label}: `{special:02d}`"
+            field_val += f"\n📱 `{sms_cmd}`"
+
+            embed.add_field(
+                name=f"Bộ {i+1}",
+                value=field_val,
+                inline=False
+            )
+            sms_lines.append(sms_cmd)
+
+        # Gộp tất cả SMS vào cuối để dễ copy từng cái
+        all_sms = "\n".join(f"`{s}`" for s in sms_lines)
+        embed.add_field(
+            name="📋 Tất cả SMS (gửi đến 9969)",
+            value=all_sms,
+            inline=False
+        )
+        embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng! Kiểm tra cú pháp SMS trước khi gửi.")
         embed.timestamp = datetime.utcnow()
+
         await interaction.followup.send(embed=embed)
+
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
 
+# ==========================================
+# XỬ LÝ LỆNH STAT
+# ==========================================
 async def run_stat(interaction: discord.Interaction, type_key: str):
     cfg = CONFIGS[type_key]
     await interaction.response.defer(thinking=True)
@@ -190,17 +246,20 @@ async def run_stat(interaction: discord.Interaction, type_key: str):
 # ==========================================
 # SLASH COMMANDS
 # ==========================================
-@tree.command(name="535", description="Gợi ý bộ số Lotto 5/35 dựa trên thống kê lịch sử")
-async def cmd_535(interaction: discord.Interaction):
-    await run_pick(interaction, "535")
+@tree.command(name="535", description="Gợi ý bộ số Lotto 5/35 kèm SMS mua vé")
+@app_commands.describe(so_bo="Số lượng bộ số muốn gợi ý (1-10, mặc định 1)")
+async def cmd_535(interaction: discord.Interaction, so_bo: app_commands.Range[int, 1, 10] = 1):
+    await run_pick(interaction, "535", so_bo)
 
-@tree.command(name="645", description="Gợi ý bộ số Mega 6/45 dựa trên thống kê lịch sử")
-async def cmd_645(interaction: discord.Interaction):
-    await run_pick(interaction, "645")
+@tree.command(name="645", description="Gợi ý bộ số Mega 6/45 kèm SMS mua vé")
+@app_commands.describe(so_bo="Số lượng bộ số muốn gợi ý (1-10, mặc định 1)")
+async def cmd_645(interaction: discord.Interaction, so_bo: app_commands.Range[int, 1, 10] = 1):
+    await run_pick(interaction, "645", so_bo)
 
-@tree.command(name="655", description="Gợi ý bộ số Power 6/55 dựa trên thống kê lịch sử")
-async def cmd_655(interaction: discord.Interaction):
-    await run_pick(interaction, "655")
+@tree.command(name="655", description="Gợi ý bộ số Power 6/55 kèm SMS mua vé")
+@app_commands.describe(so_bo="Số lượng bộ số muốn gợi ý (1-10, mặc định 1)")
+async def cmd_655(interaction: discord.Interaction, so_bo: app_commands.Range[int, 1, 10] = 1):
+    await run_pick(interaction, "655", so_bo)
 
 @tree.command(name="stat535", description="Xem thống kê hot/cold Lotto 5/35")
 async def cmd_stat535(interaction: discord.Interaction):
@@ -222,6 +281,6 @@ async def cmd_stat655(interaction: discord.Interaction):
 async def on_ready():
     await tree.sync()
     print(f"✅ Bot đã online: {client.user}")
-    print("Slash commands đã đăng ký: /535 /645 /655 /stat535 /stat645 /stat655")
+    print("Slash commands: /535 /645 /655 /stat535 /stat645 /stat655")
 
 client.run(TOKEN)
