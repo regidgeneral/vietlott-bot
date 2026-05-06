@@ -267,7 +267,10 @@ async def run_bao535(interaction, bao_key, so_bo):
             if info["type"] == "bc":
                 main_nums = generate_nums(freq, 35, info["n_main"], seen)
                 seen.add(tuple(main_nums))
-                special = sorted_sp[0][0]
+                # Random có trọng số, không luôn lấy số nóng nhất
+                sp_pool = [n for n, _ in sorted_sp]
+                sp_weights = [c for _, c in sorted_sp]
+                special = weighted_pick(sp_pool, sp_weights, 1)[0]
                 # Chỉ lấy phần "S xx xx xx-yy" không kèm prefix
                 main_str = " ".join(f"{n:02d}" for n in main_nums[:-1])
                 last = f"{main_nums[-1]:02d}-{special:02d}"
