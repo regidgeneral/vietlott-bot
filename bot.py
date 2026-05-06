@@ -204,15 +204,15 @@ async def run_pick(interaction: discord.Interaction, type_key: str, so_bo: int):
 
         single_sms = build_sms_full(cfg, all_sets)
 
-        # Button mở thẳng app SMS với 9969 và nội dung điền sẵn
+        # Tạo link qua trang trung gian redirect sang sms:
         import urllib.parse
         sms_encoded = urllib.parse.quote(single_sms)
-        sms_link = f"sms:9969?body={sms_encoded}"
+        redirect_url = f"https://vietlott-sms.netlify.app/?body={sms_encoded}"
 
         view = discord.ui.View()
         view.add_item(discord.ui.Button(
             label="📱 Mở SMS → gửi 9969",
-            url=sms_link,
+            url=redirect_url,
             style=discord.ButtonStyle.link
         ))
 
