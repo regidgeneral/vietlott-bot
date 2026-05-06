@@ -199,17 +199,15 @@ async def run_pick(interaction: discord.Interaction, type_key: str, so_bo: int):
                 inline=False
             )
 
-        # 1 tin nhắn SMS duy nhất gộp tất cả bộ số
-        single_sms = build_sms_full(cfg, all_sets)
-        embed.add_field(
-            name="📱 Copy tin nhắn này → gửi đến 9969",
-            value=f"```{single_sms}```",
-            inline=False
-        )
         embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
         embed.timestamp = datetime.utcnow()
 
+        # Gửi embed trước
         await interaction.followup.send(embed=embed)
+
+        # Gửi SMS riêng thành 1 tin nhắn text độc lập — bấm giữ là copy gọn
+        single_sms = build_sms_full(cfg, all_sets)
+        await interaction.followup.send(f"📱 **Copy → gửi 9969:**\n```{single_sms}```")
 
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
