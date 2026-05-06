@@ -202,11 +202,21 @@ async def run_pick(interaction: discord.Interaction, type_key: str, so_bo: int):
         embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
         embed.timestamp = datetime.utcnow()
 
-        await interaction.followup.send(embed=embed)
-
-        # Gửi SMS thuần, không markdown — bấm giữ → copy → paste vào 9969
         single_sms = build_sms_full(cfg, all_sets)
-        await interaction.followup.send(single_sms)
+
+        # Button mở thẳng app SMS với 9969 và nội dung điền sẵn
+        import urllib.parse
+        sms_encoded = urllib.parse.quote(single_sms)
+        sms_link = f"sms:9969?body={sms_encoded}"
+
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(
+            label="📱 Mở SMS → gửi 9969",
+            url=sms_link,
+            style=discord.ButtonStyle.link
+        ))
+
+        await interaction.followup.send(embed=embed, view=view)
 
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
