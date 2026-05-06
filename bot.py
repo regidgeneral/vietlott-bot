@@ -293,15 +293,9 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed.timestamp = datetime.utcnow()
 
         # Gửi từng SMS riêng nếu nhiều bộ
-        full_sms = " ".join(all_sms) if len(all_sms) == 1 else all_sms[0]
+        # Gộp tất cả bộ thành 1 tin nhắn SMS duy nhất
+        full_sms = " ".join(all_sms)
         await interaction.followup.send(embed=embed, view=make_button(full_sms))
-
-        # Nếu nhiều hơn 1 bộ, gửi thêm button từng bộ
-        if len(all_sms) > 1:
-            for idx, sms in enumerate(all_sms):
-                view = discord.ui.View()
-                view.add_item(discord.ui.Button(label=f"📱 Gửi bộ {idx+1}", url=make_sms_link(sms), style=discord.ButtonStyle.link))
-                await interaction.followup.send(f"Bộ {idx+1}: `{sms}`", view=view)
 
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
@@ -333,12 +327,12 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
             inline=False
         )
 
-        all_sms, seen = [], set()
+        seen, s_parts = set(), []
         for i in range(so_bo):
             nums = generate_nums(freq, cfg["n"], info["n"], seen)
             seen.add(tuple(nums))
-            sms = sms_bao_645_655(cfg["sms_prefix"], bao_key, nums)
-            all_sms.append(sms)
+            # Chỉ lấy phần "S xx xx xx..." để gộp chung prefix
+            s_parts.append("S " + " ".join(f"{n:02d}" for n in nums))
             embed.add_field(
                 name=f"Bộ {i+1}",
                 value=" ".join(f"`{n:02d}`" for n in nums),
@@ -350,12 +344,9 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
         embed.timestamp = datetime.utcnow()
 
-        await interaction.followup.send(embed=embed, view=make_button(all_sms[0]))
-        if len(all_sms) > 1:
-            for idx, sms in enumerate(all_sms):
-                view = discord.ui.View()
-                view.add_item(discord.ui.Button(label=f"📱 Gửi bộ {idx+1}", url=make_sms_link(sms), style=discord.ButtonStyle.link))
-                await interaction.followup.send(f"Bộ {idx+1}: `{sms}`", view=view)
+        # 1 SMS duy nhất: 645 K1 B7 S xx xx S xx xx S xx xx
+        full_sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
+        await interaction.followup.send(embed=embed, view=make_button(full_sms))
 
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
