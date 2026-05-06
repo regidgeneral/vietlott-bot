@@ -130,16 +130,24 @@ def generate_one(freq, cfg, special_freq=None, exclude_sets=None):
     return list(result), special
 
 
-def build_sms_one(numbers, special=None):
-    """Tạo phần 1 bộ số: S xx xx xx xx xx xx"""
+def build_sms_one(numbers, special=None, is_535=False):
+    """Tạo phần 1 bộ số
+    - 645/655: S 02 07 12 34 36 39
+    - 535:     S 03 06 08 14 21-10  (số đặc biệt dính vào số cuối bằng dấu -)
+    """
+    if is_535 and special:
+        nums_str = " ".join(f"{n:02d}" for n in numbers[:-1])
+        last = f"{numbers[-1]:02d}-{special:02d}"
+        return f"S {nums_str} {last}"
     nums_str = " ".join(f"{n:02d}" for n in numbers)
     if special:
         return f"S {nums_str} {special:02d}"
     return f"S {nums_str}"
 
 def build_sms_full(cfg, sets):
-    """Gộp tất cả bộ số thành 1 tin nhắn: 645 K1 S xx xx S xx xx ..."""
-    parts = " ".join(build_sms_one(nums, sp) for nums, sp in sets)
+    """Gộp tất cả bộ số thành 1 tin nhắn"""
+    is_535 = cfg["sms_prefix"] == "535"
+    parts = " ".join(build_sms_one(nums, sp, is_535=is_535) for nums, sp in sets)
     return f"{cfg['sms_prefix']} K1 {parts}"
 
 
