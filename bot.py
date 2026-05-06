@@ -10,7 +10,7 @@ from datetime import datetime
 # ==========================================
 # TOKEN LẤY TỪ BIẾN MÔI TRƯỜNG (Railway)
 # ==========================================
-TOKEN = os.environ.get("DISCORD_TOKEN", "MTUwMTQxNjY5MTc1MjYzMjM2MQ.GVeqwa.AUZHYwXbBN7vC7ekGnuLURGULgtxy63J8-L_8Q")
+TOKEN = os.environ.get("DISCORD_TOKEN", "")
 
 # ==========================================
 # CẤU HÌNH LOẠI VÉ
