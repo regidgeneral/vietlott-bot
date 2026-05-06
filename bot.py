@@ -130,11 +130,17 @@ def generate_one(freq, cfg, special_freq=None, exclude_sets=None):
     return list(result), special
 
 
-def build_sms(cfg, numbers, special=None):
+def build_sms_one(numbers, special=None):
+    """Tạo phần 1 bộ số: S xx xx xx xx xx xx"""
     nums_str = " ".join(f"{n:02d}" for n in numbers)
-    if cfg.get("has_special") and special:
-        return f"{cfg['sms_prefix']} {cfg['sms_type']} {nums_str} {special:02d}"
-    return f"{cfg['sms_prefix']} {cfg['sms_type']} {nums_str}"
+    if special:
+        return f"S {nums_str} {special:02d}"
+    return f"S {nums_str}"
+
+def build_sms_full(cfg, sets):
+    """Gộp tất cả bộ số thành 1 tin nhắn: 645 K1 S xx xx S xx xx ..."""
+    parts = " ".join(build_sms_one(nums, sp) for nums, sp in sets)
+    return f"{cfg['sms_prefix']} K1 {parts}"
 
 
 def make_bar(count, max_count, width=10):
@@ -173,37 +179,34 @@ async def run_pick(interaction: discord.Interaction, type_key: str, so_bo: int):
         embed.add_field(name="🔥 Hot", value=hot_str, inline=True)
         embed.add_field(name="🧊 Cold", value=cold_str, inline=True)
 
-        sms_lines = []
+        all_sets = []
         seen = set()
 
         for i in range(so_bo):
             nums, special = generate_one(freq, cfg, special_freq, exclude_sets=seen)
             seen.add(tuple(nums))
+            all_sets.append((nums, special))
 
             nums_display = " ".join(f"`{n:02d}`" for n in nums)
-            sms_cmd = build_sms(cfg, nums, special)
-
-            field_val = f"{nums_display}"
+            field_val = nums_display
             if special:
                 sp_label = "Đặc biệt" if type_key == "535" else "Power"
-                field_val += f"\n{sp_label}: `{special:02d}`"
-            field_val += f"\n📱 `{sms_cmd}`"
+                field_val += f"  |  {sp_label}: `{special:02d}`"
 
             embed.add_field(
                 name=f"Bộ {i+1}",
                 value=field_val,
                 inline=False
             )
-            sms_lines.append(sms_cmd)
 
-        # Gộp tất cả SMS vào cuối để dễ copy từng cái
-        all_sms = "\n".join(f"`{s}`" for s in sms_lines)
+        # 1 tin nhắn SMS duy nhất gộp tất cả bộ số
+        single_sms = build_sms_full(cfg, all_sets)
         embed.add_field(
-            name="📋 Tất cả SMS (gửi đến 9969)",
-            value=all_sms,
+            name="📱 Copy tin nhắn này → gửi đến 9969",
+            value=f"```{single_sms}```",
             inline=False
         )
-        embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng! Kiểm tra cú pháp SMS trước khi gửi.")
+        embed.set_footer(text="⚠️ Chỉ để vui, không đảm bảo trúng thưởng!")
         embed.timestamp = datetime.utcnow()
 
         await interaction.followup.send(embed=embed)
@@ -247,19 +250,19 @@ async def run_stat(interaction: discord.Interaction, type_key: str):
 # SLASH COMMANDS
 # ==========================================
 @tree.command(name="535", description="Gợi ý bộ số Lotto 5/35 kèm SMS mua vé")
-@app_commands.describe(so_bo="Số lượng bộ số muốn gợi ý (1-10, mặc định 1)")
-async def cmd_535(interaction: discord.Interaction, so_bo: app_commands.Range[int, 1, 10] = 1):
-    await run_pick(interaction, "535", so_bo)
+@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
+async def cmd_535(interaction: discord.Interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
+    await run_pick(interaction, "535", so_luong)
 
 @tree.command(name="645", description="Gợi ý bộ số Mega 6/45 kèm SMS mua vé")
-@app_commands.describe(so_bo="Số lượng bộ số muốn gợi ý (1-10, mặc định 1)")
-async def cmd_645(interaction: discord.Interaction, so_bo: app_commands.Range[int, 1, 10] = 1):
-    await run_pick(interaction, "645", so_bo)
+@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
+async def cmd_645(interaction: discord.Interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
+    await run_pick(interaction, "645", so_luong)
 
 @tree.command(name="655", description="Gợi ý bộ số Power 6/55 kèm SMS mua vé")
-@app_commands.describe(so_bo="Số lượng bộ số muốn gợi ý (1-10, mặc định 1)")
-async def cmd_655(interaction: discord.Interaction, so_bo: app_commands.Range[int, 1, 10] = 1):
-    await run_pick(interaction, "655", so_bo)
+@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
+async def cmd_655(interaction: discord.Interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
+    await run_pick(interaction, "655", so_luong)
 
 @tree.command(name="stat535", description="Xem thống kê hot/cold Lotto 5/35")
 async def cmd_stat535(interaction: discord.Interaction):
