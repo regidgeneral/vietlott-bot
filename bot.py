@@ -3,6 +3,7 @@ from discord import app_commands
 import requests
 from bs4 import BeautifulSoup
 import random
+import asyncio
 import re
 import os
 import urllib.parse
@@ -625,7 +626,6 @@ async def post_result(type_key):
 # ==========================================
 # SCHEDULER
 # ==========================================
-import asyncio
 
 async def scheduler():
     """Chạy nền, check giờ xổ mỗi phút"""
