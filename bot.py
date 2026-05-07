@@ -705,19 +705,19 @@ async def cmd_thongke(interaction: discord.Interaction, loai: app_commands.Choic
 @tree.command(name="sosanhso", description="So sanh bo so da mua voi ket qua moi nhat")
 @app_commands.describe(
     loai="Loại vé",
-    boSo="Nhap bo so cach nhau boi dau cach (vd: 03 08 14 22 31)"
+    bo_so="Nhap bo so cach nhau boi dau cach (vd: 03 08 14 22 31)"
 )
 @app_commands.choices(loai=[
     app_commands.Choice(name="Lotto 5/35", value="535"),
     app_commands.Choice(name="Mega 6/45", value="645"),
     app_commands.Choice(name="Power 6/55", value="655"),
 ])
-async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choice[str], boSo: str):
+async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choice[str], bo_so: str):
     cfg = CONFIGS[loai.value]
     await interaction.response.defer(thinking=True)
     try:
         # Parse bộ số người dùng nhập
-        input_nums = [int(n) for n in re.findall(r"\d+", boSo)]
+        input_nums = [int(n) for n in re.findall(r"\d+", bo_so)]
         if len(input_nums) != cfg["k"]:
             await interaction.followup.send(f"⚠️ {cfg['label']} cần đúng **{cfg['k']} số**. Bạn nhập {len(input_nums)} số.")
             return
