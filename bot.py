@@ -185,32 +185,31 @@ def get_combined_data(type_key):
     Kết hợp data từ 2 nguồn:
     1. GitHub vietvudanh → lịch sử cũ (nhiều kỳ)
     2. Google Sheets → lịch sử mới bot tự cập nhật (chính xác ngày hơn)
-    Dùng Google Sheets làm primary nếu có, fallback sang GitHub
+    Trả về: all_nums, all_sp, days_since, pair_freq
     """
     cfg = CONFIGS[type_key]
 
-    # Lấy data từ Google Sheets trước
+    # Lấy data từ Google Sheets
     sheets_nums, sheets_sp, _ = load_from_sheets(type_key)
 
     # Lấy data từ GitHub JSONL
     jsonl_text, jsonl_nums, jsonl_sp = fetch_jsonl(cfg)
 
-    # Merge: ưu tiên Sheets (mới hơn), bổ sung từ JSONL
     if sheets_nums:
-        # Tính days_since từ Sheets (có ngày chính xác)
         days_since = compute_days_since_from_sheets(type_key)
-        # Kết hợp số từ cả 2 nguồn
         all_nums = jsonl_nums + sheets_nums
         all_sp   = jsonl_sp + sheets_sp
         print(f"✅ {type_key}: {len(jsonl_nums)//cfg['k']} ky JSONL + {len(sheets_nums)//cfg['k']} ky Sheets")
     else:
-        # Fallback: chỉ dùng JSONL
         all_nums = jsonl_nums
         all_sp   = jsonl_sp
         days_since = compute_days_since(jsonl_text, cfg) if jsonl_text else {}
         print(f"⚠️ {type_key}: Chi dung JSONL ({len(jsonl_nums)//cfg['k']} ky)")
 
-    return all_nums, all_sp, days_since
+    # Tính pair frequency từ toàn bộ lịch sử
+    pair_freq = compute_pair_freq(all_nums, cfg["k"]) if all_nums else {}
+
+    return all_nums, all_sp, days_since, pair_freq
 
 def compute_freq(numbers, n):
     freq = {i: 0 for i in range(1, n + 1)}
@@ -235,6 +234,96 @@ def compute_days_since(jsonl_text, cfg):
         except: continue
     return {n: (today - last_seen[n]).days if n in last_seen else 9999
             for n in range(1, cfg["n"] + 1)}
+
+def compute_pair_freq(all_numbers, k):
+    """
+    Tính tần suất xuất hiện cùng nhau của các cặp số.
+    Trả về dict: {num -> [danh sách số hay đi kèm theo thứ tự]}
+    """
+    from collections import defaultdict
+    pair_count = defaultdict(int)
+
+    # Chia all_numbers thành từng kỳ
+    draws = [all_numbers[i:i+k] for i in range(0, len(all_numbers), k)]
+
+    for draw in draws:
+        draw = list(set(draw))  # loại trùng
+        for i in range(len(draw)):
+            for j in range(i+1, len(draw)):
+                a, b = draw[i], draw[j]
+                pair = (min(a,b), max(a,b))
+                pair_count[pair] += 1
+
+    # Với mỗi số, tìm các số hay đi kèm nhất
+    companions = defaultdict(list)
+    for (a, b), cnt in pair_count.items():
+        companions[a].append((b, cnt))
+        companions[b].append((a, cnt))
+
+    # Sort theo tần suất giảm dần
+    for num in companions:
+        companions[num].sort(key=lambda x: x[1], reverse=True)
+
+    return dict(companions)
+
+def generate_nums(freq, n_total, n_pick, exclude_sets=None, days_since=None, pair_freq=None):
+    """
+    Thuật toán kết hợp 3 yếu tố:
+    - 40% hot (tần suất cao)
+    - 30% due (lâu chưa ra)
+    - 30% cold (tần suất thấp)
+    + Sau khi có seed number, ưu tiên chọn số hay đi kèm với nó
+    """
+    avg = sum(freq.values()) / n_total
+    sorted_f = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    hot    = [n for n, _ in sorted_f[:15]]
+    hot_w  = [freq[n] for n in hot]
+    cold   = [n for n, _ in sorted_f[-15:]]
+    cold_w = [max(1, avg * 2 - freq[n]) for n in cold]
+
+    if days_since:
+        due_sorted = sorted(days_since.items(), key=lambda x: x[1], reverse=True)
+        due   = [n for n, _ in due_sorted[:15]]
+        due_w = [days_since[n] for n in due]
+    else:
+        due, due_w = cold, cold_w
+
+    n_hot  = max(1, round(n_pick * 0.4))
+    n_due  = max(1, round(n_pick * 0.3))
+    n_cold = n_pick - n_hot - n_due
+
+    for attempt in range(20):
+        picked = set()
+
+        # Bước 1: Chọn seed number từ hot
+        seed_candidates = weighted_pick(hot, hot_w, 1)
+        if seed_candidates:
+            seed = seed_candidates[0]
+            picked.add(seed)
+
+            # Bước 2: Nếu có pair_freq, ưu tiên số hay đi kèm với seed
+            if pair_freq and seed in pair_freq and len(picked) < n_pick:
+                companions = [n for n, _ in pair_freq[seed][:10] if n not in picked]
+                comp_w = [c for n, c in pair_freq[seed][:10] if n not in picked]
+                if companions:
+                    n_pair = min(round(n_pick * 0.3), len(companions))
+                    pair_picks = weighted_pick(companions, comp_w, n_pair, exclude=picked)
+                    picked.update(pair_picks)
+
+        # Bước 3: Bổ sung từ due và cold
+        picked.update(weighted_pick(due, due_w, max(1, n_due - len(picked) + 1), exclude=picked))
+        picked.update(weighted_pick(cold, cold_w, max(1, n_cold), exclude=picked))
+        picked.update(weighted_pick(hot, hot_w, n_hot, exclude=picked))
+
+        # Điền thêm nếu còn thiếu
+        while len(picked) < n_pick:
+            picked.add(random.randint(1, n_total))
+
+        result = tuple(sorted(list(picked)[:n_pick]))
+        if not exclude_sets or result not in exclude_sets:
+            return list(result)
+
+    return list(sorted(list(picked)[:n_pick]))
 
 def weighted_pick(pool, weights, count, exclude=None):
     exclude = exclude or set()
@@ -401,7 +490,7 @@ async def run_pick(interaction, type_key, so_luong):
     cfg = CONFIGS[type_key]
     await interaction.response.defer(thinking=True)
     try:
-        numbers, specials, days_since = get_combined_data(type_key)
+        numbers, specials, days_since, pair_freq = get_combined_data(type_key)
         if len(numbers) < cfg["k"] * 5:
             await interaction.followup.send("⚠️ Không lấy được dữ liệu!")
             return
@@ -410,13 +499,11 @@ async def run_pick(interaction, type_key, so_luong):
         draws = len(numbers) // cfg["k"]
 
         embed = discord.Embed(title=f"🎰 {cfg['label']} — {so_luong} bộ số", color=0x1D9E75)
-        tong = so_luong * 10000
         embed.add_field(name="Phân tích từ", value=f"{draws} kỳ lịch sử", inline=True)
-        embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=True)
 
-        all_sets, seen, lines = [], set(), []
+        all_sets, seen = [], set()
         for i in range(so_luong):
-            nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since)
+            nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq)
             seen.add(tuple(nums))
             sp = None
             if cfg.get("has_special") and sp_freq:
@@ -424,9 +511,11 @@ async def run_pick(interaction, type_key, so_luong):
                 sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
             all_sets.append((nums, sp))
             disp = " ".join(f"`{n:02d}`" for n in nums)
-            extra = f" | ĐB:`{sp:02d}`" if sp and type_key == "535" else (f" | Power:`{sp:02d}`" if sp else "")
-            lines.append(f"**Bộ {i+1}:** {disp}{extra}")
-        embed.add_field(name="Bộ số", value=builtin_function_or_method, inline=False)
+            extra = f"  |  DB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
+            embed.add_field(name=f"Bộ {i+1}", value=disp + extra, inline=False)
+
+        tong = so_luong * 10000
+        embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
@@ -444,7 +533,7 @@ async def run_bao535(interaction, bao_key, so_bo):
         return
     await interaction.response.defer(thinking=True)
     try:
-        numbers, specials, days_since = get_combined_data("535")
+        numbers, specials, days_since, pair_freq = get_combined_data("535")
         freq = compute_freq(numbers, 35)
         sp_freq = compute_freq(specials, 12) if specials else {i: 1 for i in range(1, 13)}
         sorted_sp = sorted(sp_freq.items(), key=lambda x: x[1], reverse=True)
@@ -452,10 +541,10 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed = discord.Embed(title=f"🎰 {info['label']} — Lotto 5/35", color=0x9B59B6)
         embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
 
-        seen, s_parts, lines = set(), [], []
+        seen, s_parts = set(), []
         for i in range(so_bo):
             if info["type"] == "bc":
-                main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since)
+                main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since, pair_freq)
                 seen.add(tuple(main_nums))
                 sp_pool = [n for n, _ in sorted_sp]
                 sp_w = [c for _, c in sorted_sp]
@@ -463,21 +552,17 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums[:-1])
                 last = f"{main_nums[-1]:02d}-{special:02d}"
                 s_parts.append(f"S {main_str} {last}")
-                disp = " ".join(f"`{n:02d}`" for n in main_nums)
-                lines.append(f"**Bộ {i+1}:** {disp} | ĐB:`{special:02d}`")
+                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: `{special:02d}`", inline=False)
             else:
-                main_nums = generate_nums(freq, 35, 5, seen, days_since)
+                main_nums = generate_nums(freq, 35, 5, seen, days_since, pair_freq)
                 seen.add(tuple(main_nums))
                 specials_picked = [n for n, _ in sorted_sp[:info["n_sp"]]]
                 main_str = " ".join(f"{n:02d}" for n in main_nums)
                 sp_str = f"{specials_picked[0]:02d}" + (" " + " ".join(f"{n:02d}" for n in specials_picked[1:]) if len(specials_picked) > 1 else "")
                 s_parts.append(f"S {main_str}-{sp_str}")
-                disp = " ".join(f"`{n:02d}`" for n in main_nums)
-                sp_disp = " ".join(f"`{n:02d}`" for n in specials_picked)
-                lines.append(f"**Bộ {i+1}:** {disp} | ĐB: {sp_disp}")
+                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: {' '.join(f'`{n:02d}`' for n in specials_picked)}", inline=False)
 
         tong = so_bo * info["gia"]
-        embed.add_field(name="Bộ số", value=builtin_function_or_method, inline=False)
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
@@ -498,7 +583,7 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         return
     await interaction.response.defer(thinking=True)
     try:
-        numbers, _, days_since = get_combined_data(type_key)
+        numbers, _, days_since, pair_freq = get_combined_data(type_key)
         freq = compute_freq(numbers, cfg["n"])
 
         embed = discord.Embed(title=f"🎰 {info['label']} — {cfg['label']}", color=0x9B59B6)
@@ -506,13 +591,13 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
 
         seen, s_parts = set(), []
         for i in range(so_bo):
-            nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since)
+            nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since, pair_freq)
             seen.add(tuple(nums))
             s_parts.append("S " + " ".join(f"{n:02d}" for n in nums))
             embed.add_field(name=f"Bộ {i+1}", value=" ".join(f"`{n:02d}`" for n in nums), inline=False)
 
         tong = so_bo * gia
-        embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
+        embed.add_field(name="Tông tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
@@ -555,14 +640,14 @@ async def post_result(type_key):
 
     # Gợi ý 5 bộ số kỳ tiếp
     await asyncio.sleep(2)
-    all_nums, all_sp, days_since = get_combined_data(type_key)
+    all_nums, all_sp, days_since, pair_freq = get_combined_data(type_key)
     freq = compute_freq(all_nums, cfg["n"])
     sp_freq = compute_freq(all_sp, cfg.get("special_n", 55)) if all_sp else None
 
-    embed2 = discord.Embed(title=f"🎯 Gợi ý 5 bộ số kỳ tiếp — {cfg['label']}", color=0x1D9E75)
-    all_sets, seen, lines2 = [], set(), []
+    embed2 = discord.Embed(title=f"🎯 Gợi ý 5 bộ số kì tiếp — {cfg['label']}", color=0x1D9E75)
+    all_sets, seen = [], set()
     for i in range(5):
-        nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since)
+        nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq)
         seen.add(tuple(nums))
         sp = None
         if cfg.get("has_special") and sp_freq:
@@ -570,9 +655,8 @@ async def post_result(type_key):
             sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
         all_sets.append((nums, sp))
         disp = " ".join(f"`{n:02d}`" for n in nums)
-        extra = f" | ĐB:`{sp:02d}`" if sp and type_key == "535" else (f" | Power:`{sp:02d}`" if sp else "")
-        lines2.append(f"**Bộ {i+1}:** {disp}{extra}")
-    embed2.add_field(name="Bộ số gợi ý", value=builtin_function_or_method, inline=False)
+        extra = f"  |  ĐB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
+        embed2.add_field(name=f"Bo {i+1}", value=disp + extra, inline=False)
 
     sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
     embed2.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
