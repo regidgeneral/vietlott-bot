@@ -1,4 +1,5 @@
 import discord
+import json
 from discord import app_commands
 import requests
 from bs4 import BeautifulSoup
@@ -12,12 +13,12 @@ from datetime import datetime
 TOKEN = os.environ.get("DISCORD_TOKEN", "")
 
 CONFIGS = {
-    "535": {"n": 35, "k": 5, "has_special": True, "special_n": 12, "label": "Lotto 5/35",
-            "sms_prefix": "535", "url": "https://www.lotto-8.com/Vietnam/listltoVM35.asp", "pages": 5},
-    "645": {"n": 45, "k": 6, "has_special": False, "label": "Mega 6/45",
-            "sms_prefix": "645", "url": "https://www.lotto-8.com/Vietnam/listltoVM45.asp", "pages": 5},
-    "655": {"n": 55, "k": 6, "has_special": True, "special_n": 10, "label": "Power 6/55",
-            "sms_prefix": "655", "url": "https://www.lotto-8.com/Vietnam/listltoVM55.asp", "pages": 5},
+    "535": {"n": 35, "k": 5, "has_special": True,  "special_n": 12, "label": "Lotto 5/35",  "sms_prefix": "535",
+            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/p535.jsonl"},
+    "645": {"n": 45, "k": 6, "has_special": False, "label": "Mega 6/45",  "sms_prefix": "645",
+            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/p645.jsonl"},
+    "655": {"n": 55, "k": 6, "has_special": True,  "special_n": 10, "label": "Power 6/55", "sms_prefix": "655",
+            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/p655.jsonl"},
 }
 
 GIOI_HAN_NGAY = {"535": 1_000_000, "645": 2_100_000, "655": 2_100_000}
@@ -59,28 +60,37 @@ _cache = {}
 # FETCH & COMPUTE
 # ==========================================
 def fetch_history(cfg):
+    """Fetch toàn bộ lịch sử từ GitHub vietvudanh/vietlott-data (JSONL)"""
     key = cfg["sms_prefix"]
     if key in _cache:
         return _cache[key]
+
     all_numbers, all_specials = [], []
-    headers = {"User-Agent": "Mozilla/5.0"}
-    for page in range(1, cfg["pages"] + 1):
-        try:
-            r = requests.get(f"{cfg['url']}?indexpage={page}&orderby=new", headers=headers, timeout=10)
-            soup = BeautifulSoup(r.text, "html.parser")
-            for row in soup.select("table tr"):
-                cells = row.find_all("td")
-                if len(cells) < 2:
-                    continue
-                nums = [int(n) for n in re.findall(r"\d+", cells[1].get_text()) if 1 <= int(n) <= cfg["n"]]
-                if len(nums) == cfg["k"]:
-                    all_numbers.extend(nums)
-                    if cfg.get("has_special") and len(cells) >= 3:
-                        sp = re.findall(r"\d+", cells[2].get_text())
-                        if sp and 1 <= int(sp[0]) <= cfg.get("special_n", 12):
-                            all_specials.append(int(sp[0]))
-        except Exception:
-            continue
+    try:
+        r = requests.get(cfg["jsonl_url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        if r.status_code != 200:
+            print(f"❌ Không tải được JSONL {key}: HTTP {r.status_code}")
+            return [], []
+        for line in r.text.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                result  = data.get("result", [])
+                special = data.get("special", None)
+                if len(result) == cfg["k"]:
+                    all_numbers.extend([int(n) for n in result if 1 <= int(n) <= cfg["n"]])
+                    if cfg.get("has_special") and special is not None:
+                        sp_val = int(special)
+                        if 1 <= sp_val <= cfg.get("special_n", 12):
+                            all_specials.append(sp_val)
+            except Exception:
+                continue
+        print(f"✅ Fetch JSONL {key}: {len(all_numbers)//cfg['k']} kỳ")
+    except Exception as e:
+        print(f"❌ Lỗi fetch JSONL {key}: {e}")
+
     _cache[key] = (all_numbers, all_specials)
     return all_numbers, all_specials
 
@@ -231,7 +241,7 @@ async def run_stat(interaction, type_key):
         embed.add_field(name="Số lạnh nhất", value=f"**{sorted_f[-1][0]:02d}** ({sorted_f[-1][1]}x)", inline=True)
         embed.add_field(name="🔥 Top 5 nóng", value="\n".join(f"`{n:02d}` {bar(c)} {c}x" for n, c in sorted_f[:5]), inline=True)
         embed.add_field(name="🧊 Top 5 lạnh", value="\n".join(f"`{n:02d}` {bar(c)} {c}x" for n, c in sorted_f[-5:][::-1]), inline=True)
-        embed.set_footer(text="Dữ liệu từ lotto-8.com")
+        embed.set_footer(text="Du lieu tu github.com/vietvudanh/vietlott-data")
         await interaction.followup.send(embed=embed)
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
@@ -442,7 +452,6 @@ async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_com
 
 # GOOGLE SHEETS & KẾT QUẢ XỔ SỐ
 # ==========================================
-import json
 import threading
 import time
 import pytz
@@ -516,31 +525,29 @@ def load_results(type_key):
         return []
 
 def fetch_latest_result(type_key):
-    """Fetch kết quả mới nhất từ lotto-8.com"""
+    """Fetch kết quả mới nhất từ GitHub vietvudanh/vietlott-data (dòng cuối JSONL)"""
     cfg = CONFIGS[type_key]
-    headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        r = requests.get(f"{cfg['url']}?indexpage=1&orderby=new", headers=headers, timeout=10)
-        soup = BeautifulSoup(r.text, "html.parser")
-        rows = soup.select("table tr")
-        for row in rows:
-            cells = row.find_all("td")
-            if len(cells) < 2:
-                continue
-            nums = [int(n) for n in re.findall(r"\d+", cells[1].get_text()) if 1 <= int(n) <= cfg["n"]]
-            if len(nums) == cfg["k"]:
-                # Chỉ lấy phần số của kỳ, tránh encoding lỗi
-                ky_raw = cells[0].get_text(strip=True) if cells else "?"
-                ky_nums = re.findall(r"[\d/]+", ky_raw)
-                ky = ky_nums[0] if ky_nums else ky_raw
-                special = None
-                if cfg.get("has_special") and len(cells) >= 3:
-                    sp = re.findall(r"\d+", cells[2].get_text())
-                    if sp and 1 <= int(sp[0]) <= cfg.get("special_n", 12):
-                        special = int(sp[0])
-                return ky, nums, special
+        r = requests.get(cfg["jsonl_url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        if r.status_code != 200:
+            return None, None, None
+        lines = [l.strip() for l in r.text.strip().split("\n") if l.strip()]
+        if not lines:
+            return None, None, None
+        # Dòng cuối = kỳ mới nhất
+        data = json.loads(lines[-1])
+        ky      = str(data.get("id", "?")).zfill(5)
+        date    = data.get("date", "")
+        if date and len(date) == 10:
+            y, m, d = date.split("-")
+            date = f"{d}/{m}/{y}"
+        result  = [int(n) for n in data.get("result", [])]
+        special = data.get("special", None)
+        if special is not None:
+            special = int(special)
+        return f"{ky} ({date})", result, special
     except Exception as e:
-        print(f"❌ Lỗi fetch kết quả {type_key}: {e}")
+        print(f"❌ Lỗi fetch latest {type_key}: {e}")
     return None, None, None
 
 def compute_freq_from_sheet(type_key):
@@ -912,10 +919,17 @@ async def cmd_importhistory(interaction: discord.Interaction, loai: app_commands
                     cells = row.find_all("td")
                     if len(cells) < 2:
                         continue
-                    ky_raw = cells[0].get_text(strip=True)
-                    ky_parts = re.findall(r"[\d/]+", ky_raw)
-                    ky = ky_parts[0] if ky_parts else "?"
-                    ngay = ky_parts[1] if len(ky_parts) > 1 else ""
+                    # Parse kỳ và ngày từ cell 0
+                    # Format thực tế: "dd/mm/yyyy" ở 1 cell, kỳ số ở cell khác
+                    # hoặc gộp chung — tách bằng regex
+                    cell0 = cells[0].get_text(strip=True)
+                    # Tìm ngày dd/mm/yyyy
+                    ngay_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", cell0)
+                    ngay = ngay_match.group(1) if ngay_match else ""
+                    # Tìm kỳ: chuỗi số dài 5+ chữ số không phải năm
+                    ky_match = re.search(r"(\d{5,6})", cell0)
+                    ky = ky_match.group(1) if ky_match else cell0[:6]
+
                     nums = [int(n) for n in re.findall(r"\d+", cells[1].get_text())
                             if 1 <= int(n) <= cfg["n"]]
                     if len(nums) != cfg["k"]:
@@ -936,6 +950,8 @@ async def cmd_importhistory(interaction: discord.Interaction, loai: app_commands
             except Exception as e:
                 print(f"Loi trang {page}: {e}")
                 continue
+        # Sắp xếp theo kỳ tăng dần (cũ -> mới)
+        all_rows.sort(key=lambda x: x[1] if x[1] else "0")
 
         if not all_rows:
             await interaction.followup.send(f"⚠️ Khong fetch duoc du lieu {cfg['label']}!")
