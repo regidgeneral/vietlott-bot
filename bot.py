@@ -360,28 +360,28 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
 # ==========================================
 # SLASH COMMANDS
 # ==========================================
-@tree.command(name="535", description="Gợi ý bộ số Lotto 5/35 kèm SMS")
-@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
+@tree.command(name="535", description="Go y bo so Lotto 5/35 kem SMS")
+@app_commands.describe(so_luong="So bo muon mua (1-10)")
 async def cmd_535(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "535", so_luong)
 
-@tree.command(name="645", description="Gợi ý bộ số Mega 6/45 kèm SMS")
-@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
+@tree.command(name="645", description="Go y bo so Mega 6/45 kem SMS")
+@app_commands.describe(so_luong="So bo muon mua (1-10)")
 async def cmd_645(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "645", so_luong)
 
-@tree.command(name="655", description="Gợi ý bộ số Power 6/55 kèm SMS")
-@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
+@tree.command(name="655", description="Go y bo so Power 6/55 kem SMS")
+@app_commands.describe(so_luong="So bo muon mua (1-10)")
 async def cmd_655(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "655", so_luong)
 
-@tree.command(name="stat535", description="Thống kê hot/cold Lotto 5/35")
+@tree.command(name="stat535", description="Thong ke hot/cold Lotto 5/35")
 async def cmd_stat535(interaction): await run_stat(interaction, "535")
 
-@tree.command(name="stat645", description="Thống kê hot/cold Mega 6/45")
+@tree.command(name="stat645", description="Thong ke hot/cold Mega 6/45")
 async def cmd_stat645(interaction): await run_stat(interaction, "645")
 
-@tree.command(name="stat655", description="Thống kê hot/cold Power 6/55")
+@tree.command(name="stat655", description="Thong ke hot/cold Power 6/55")
 async def cmd_stat655(interaction): await run_stat(interaction, "655")
 
 # Bao 535
@@ -402,7 +402,7 @@ bao535_choices = [
     app_commands.Choice(name="BD11 – Bao 11 số đặc biệt (110.000đ) – max 9 bộ",  value="bd11"),
     app_commands.Choice(name="BD12 – Bao 12 số đặc biệt (120.000đ) – max 8 bộ",  value="bd12"),
 ]
-@tree.command(name="bao535", description="Bao số Lotto 5/35 kèm SMS (có kiểm tra giới hạn ngày)")
+@tree.command(name="bao535", description="Bao so Lotto 5/35 kem SMS co kiem tra gioi han ngay")
 @app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao535_choices)
 async def cmd_bao535(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 50] = 1):
@@ -416,7 +416,7 @@ bao645_choices = [
     app_commands.Choice(name="B9  – Bao 9 số (840.000đ) – max 2 bộ",    value="b9"),
     app_commands.Choice(name="B10 – Bao 10 số (2.100.000đ) – max 1 bộ", value="b10"),
 ]
-@tree.command(name="bao645", description="Bao số Mega 6/45 kèm SMS (có kiểm tra giới hạn ngày)")
+@tree.command(name="bao645", description="Bao so Mega 6/45 kem SMS co kiem tra gioi han ngay")
 @app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao645_choices)
 async def cmd_bao645(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 30] = 1):
@@ -430,7 +430,7 @@ bao655_choices = [
     app_commands.Choice(name="B9  – Bao 9 số (840.000đ) – max 2 bộ",    value="b9"),
     app_commands.Choice(name="B10 – Bao 10 số (2.100.000đ) – max 1 bộ", value="b10"),
 ]
-@tree.command(name="bao655", description="Bao số Power 6/55 kèm SMS (có kiểm tra giới hạn ngày)")
+@tree.command(name="bao655", description="Bao so Power 6/55 kem SMS co kiem tra gioi han ngay")
 @app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao655_choices)
 async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 30] = 1):
@@ -631,8 +631,8 @@ async def scheduler():
 # ==========================================
 # SLASH COMMANDS MỚI
 # ==========================================
-@tree.command(name="ketqua", description="Xem kết quả xổ số mới nhất")
-@app_commands.describe(loai="Loại vé muốn xem")
+@tree.command(name="ketqua", description="Xem ket qua xo so moi nhat")
+@app_commands.describe(loai="Loai ve muon xem")
 @app_commands.choices(loai=[
     app_commands.Choice(name="Lotto 5/35", value="535"),
     app_commands.Choice(name="Mega 6/45", value="645"),
@@ -656,8 +656,8 @@ async def cmd_ketqua(interaction: discord.Interaction, loai: app_commands.Choice
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
-@tree.command(name="thongke", description="Thống kê hot/cold từ dữ liệu tự lưu")
-@app_commands.describe(loai="Loại vé muốn xem")
+@tree.command(name="thongke", description="Thong ke hot/cold tu du lieu tu luu")
+@app_commands.describe(loai="Loai ve muon xem")
 @app_commands.choices(loai=[
     app_commands.Choice(name="Lotto 5/35", value="535"),
     app_commands.Choice(name="Mega 6/45", value="645"),
@@ -702,10 +702,10 @@ async def cmd_thongke(interaction: discord.Interaction, loai: app_commands.Choic
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
-@tree.command(name="sosanhso", description="So sánh bộ số đã mua với kết quả mới nhất")
+@tree.command(name="sosanhso", description="So sanh bo so da mua voi ket qua moi nhat")
 @app_commands.describe(
     loai="Loại vé",
-    boSo="Nhập bộ số cách nhau bởi dấu cách (vd: 03 08 14 22 31)"
+    boSo="Nhap bo so cach nhau boi dau cach (vd: 03 08 14 22 31)"
 )
 @app_commands.choices(loai=[
     app_commands.Choice(name="Lotto 5/35", value="535"),
