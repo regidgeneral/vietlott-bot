@@ -394,8 +394,8 @@ async def run_pick(interaction, type_key, so_luong):
         sp_freq = compute_freq(specials, cfg.get("special_n", 55)) if specials else None
         draws = len(numbers) // cfg["k"]
 
-        embed = discord.Embed(title=f"🎰 {cfg['label']} — {so_luong} bo so", color=0x1D9E75)
-        embed.add_field(name="Phan tich tu", value=f"{draws} ky lich su", inline=True)
+        embed = discord.Embed(title=f"🎰 {cfg['label']} — {so_luong} bộ số", color=0x1D9E75)
+        embed.add_field(name="Phân tích từ", value=f"{draws} kỳ lịch sử", inline=True)
 
         all_sets, seen = [], set()
         for i in range(so_luong):
@@ -424,7 +424,7 @@ async def run_bao535(interaction, bao_key, so_bo):
     so_bo_max = max_bo(info["gia"], "535")
     if so_bo > so_bo_max:
         await interaction.response.send_message(
-            f"⚠️ {info['label']} giá {fmt_gia(info['gia'])}/bộ → tối đa **{so_bo_max} bộ** ({fmt_gia(GIOI_HAN_NGAY['535'])}/ngày)",
+            f"⚠️ {info['label']} gia {fmt_gia(info['gia'])}/bộ → tối đa **{so_bo_max} bộ** ({fmt_gia(GIOI_HAN_NGAY['535'])}/ngày)",
             ephemeral=True)
         return
     await interaction.response.defer(thinking=True)
