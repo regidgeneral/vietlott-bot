@@ -481,13 +481,23 @@ def save_result(type_key, ngay, ky, numbers, special=None):
     try:
         wb = get_sheet()
         ws = wb.worksheet(type_key)
+
+        # Kiểm tra kỳ đã tồn tại chưa — tránh trùng
+        existing = ws.col_values(2)  # cột B = Kỳ
+        ky_str = str(ky).strip()
+        if ky_str in [str(k).strip() for k in existing[1:]]:  # bỏ header
+            print(f"⚠️ Kỳ {ky} đã tồn tại trong sheet {type_key}, bỏ qua!")
+            return False
+
         row = [ngay, ky] + [str(n) for n in numbers]
         if special:
             row.append(str(special))
         ws.append_row(row)
         print(f"✅ Đã lưu kết quả {type_key} kỳ {ky}")
+        return True
     except Exception as e:
         print(f"❌ Lỗi lưu Sheets: {e}")
+        return False
 
 def load_results(type_key):
     try:
@@ -866,6 +876,92 @@ async def cmd_luuketqua(
         await interaction.followup.send(embed=embed)
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
+
+
+@tree.command(name="importhistory", description="Import toan bo lich su xo so vao Google Sheets - chi chay 1 lan")
+@app_commands.choices(loai=[
+    app_commands.Choice(name="Tat ca (535 + 645 + 655)", value="all"),
+    app_commands.Choice(name="Lotto 5/35", value="535"),
+    app_commands.Choice(name="Mega 6/45", value="645"),
+    app_commands.Choice(name="Power 6/55", value="655"),
+])
+@app_commands.describe(loai="Chon loai ve muon import")
+async def cmd_importhistory(interaction: discord.Interaction, loai: app_commands.Choice[str]):
+    await interaction.response.defer(thinking=True)
+    await interaction.followup.send(f"⏳ Bat dau import lich su **{loai.name}**... Co the mat 5-15 phut, vui long cho!")
+
+    types = ["535", "645", "655"] if loai.value == "all" else [loai.value]
+
+    for type_key in types:
+        cfg = CONFIGS[type_key]
+        pages = {"535": 35, "645": 75, "655": 35}[type_key]
+        await interaction.followup.send(f"📊 Dang fetch **{cfg['label']}** ({pages} trang)...")
+
+        all_rows = []
+        headers_req = {"User-Agent": "Mozilla/5.0"}
+
+        for page in range(1, pages + 1):
+            try:
+                r = requests.get(
+                    f"{cfg['url']}?indexpage={page}&orderby=old",
+                    headers=headers_req, timeout=15
+                )
+                soup = BeautifulSoup(r.text, "html.parser")
+                page_count = 0
+                for row in soup.select("table tr"):
+                    cells = row.find_all("td")
+                    if len(cells) < 2:
+                        continue
+                    ky_raw = cells[0].get_text(strip=True)
+                    ky_parts = re.findall(r"[\d/]+", ky_raw)
+                    ky = ky_parts[0] if ky_parts else "?"
+                    ngay = ky_parts[1] if len(ky_parts) > 1 else ""
+                    nums = [int(n) for n in re.findall(r"\d+", cells[1].get_text())
+                            if 1 <= int(n) <= cfg["n"]]
+                    if len(nums) != cfg["k"]:
+                        continue
+                    special = ""
+                    if cfg.get("has_special") and len(cells) >= 3:
+                        sp = re.findall(r"\d+", cells[2].get_text())
+                        if sp and 1 <= int(sp[0]) <= cfg.get("special_n", 12):
+                            special = sp[0]
+                    row_data = [ngay, ky] + [str(n) for n in nums]
+                    if cfg.get("has_special"):
+                        row_data.append(special)
+                    all_rows.append(row_data)
+                    page_count += 1
+                if page_count == 0:
+                    break
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"Loi trang {page}: {e}")
+                continue
+
+        if not all_rows:
+            await interaction.followup.send(f"⚠️ Khong fetch duoc du lieu {cfg['label']}!")
+            continue
+
+        # Luu vao Sheets theo batch
+        try:
+            wb = get_sheet()
+            ws = wb.worksheet(type_key)
+            existing = ws.get_all_values()
+            if len(existing) > 1:
+                ws.delete_rows(2, len(existing))
+                await asyncio.sleep(2)
+
+            batch_size = 100
+            total = len(all_rows)
+            for i in range(0, total, batch_size):
+                batch = all_rows[i:i+batch_size]
+                ws.append_rows(batch, value_input_option="RAW")
+                await asyncio.sleep(1)
+
+            await interaction.followup.send(f"✅ **{cfg['label']}**: Da luu **{total} ky** vao Google Sheets!")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Loi luu {cfg['label']}: {str(e)}")
+
+    await interaction.followup.send("🎉 **Import hoan tat!** Dung /thongke de xem thong ke.")
 
 
 @client.event
