@@ -341,36 +341,7 @@ def weighted_pick(pool, weights, count, exclude=None):
                 break
     return picked
 
-def generate_nums(freq, n_total, n_pick, exclude_sets=None, days_since=None):
-    """40% hot + 30% due (lâu chưa ra) + 30% cold"""
-    avg = sum(freq.values()) / n_total
-    sorted_f = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-    hot   = [n for n, _ in sorted_f[:15]]
-    hot_w = [freq[n] for n in hot]
-    cold   = [n for n, _ in sorted_f[-15:]]
-    cold_w = [max(1, avg * 2 - freq[n]) for n in cold]
-    if days_since:
-        due_sorted = sorted(days_since.items(), key=lambda x: x[1], reverse=True)
-        due   = [n for n, _ in due_sorted[:15]]
-        due_w = [days_since[n] for n in due]
-    else:
-        due, due_w = cold, cold_w
 
-    n_hot  = max(1, round(n_pick * 0.4))
-    n_due  = max(1, round(n_pick * 0.3))
-    n_cold = n_pick - n_hot - n_due
-
-    for _ in range(20):
-        picked = set()
-        picked.update(weighted_pick(hot, hot_w, n_hot))
-        picked.update(weighted_pick(due, due_w, n_due, exclude=picked))
-        picked.update(weighted_pick(cold, cold_w, n_cold, exclude=picked))
-        while len(picked) < n_pick:
-            picked.add(random.randint(1, n_total))
-        result = tuple(sorted(picked))
-        if not exclude_sets or result not in exclude_sets:
-            return list(result)
-    return list(sorted(picked))
 
 def fmt_gia(gia):
     return f"{gia:,}d".replace(",", ".")
