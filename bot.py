@@ -443,5 +443,329 @@ async def on_ready():
     await tree.sync()
     print(f"✅ Bot đã online: {client.user}")
     print("Commands: /535 /645 /655 /stat535 /stat645 /stat655 /bao535 /bao645 /bao655")
+    print("Commands: /ketqua /thongke /sosanhso")
+    # Khởi động scheduler chạy nền
+    asyncio.create_task(scheduler())
+    print("⏰ Scheduler đã khởi động")
 
 client.run(TOKEN)
+
+
+# ==========================================
+# GOOGLE SHEETS & KẾT QUẢ XỔ SỐ
+# ==========================================
+import json
+import threading
+import time
+import pytz
+from datetime import datetime, timedelta
+import gspread
+from google.oauth2.service_account import Credentials
+
+VN_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
+
+# Lịch xổ: (weekday, hour, minute) — weekday: 0=T2, 1=T3...6=CN
+LICH_XO = {
+    "535": [(0, 21, 5), (2, 21, 5), (4, 21, 5)],   # T2, T4, T6 lúc 21:05
+    "645": [(2, 18, 5), (4, 18, 5), (6, 18, 5)],   # T4, T6, CN lúc 18:05
+    "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],   # T3, T5, T7 lúc 18:05
+}
+
+DISCORD_CHANNEL_ID = int(os.environ.get("DISCORD_CHANNEL_ID", "0"))
+
+def get_sheet():
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS", "{}")
+    creds_dict = json.loads(creds_json)
+    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    gc = gspread.authorize(creds)
+    sheet_id = os.environ.get("GOOGLE_SHEET_ID", "")
+    return gc.open_by_key(sheet_id)
+
+def save_result(type_key, ngay, ky, numbers, special=None):
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet(type_key)
+        row = [ngay, ky] + [str(n) for n in numbers]
+        if special:
+            row.append(str(special))
+        ws.append_row(row)
+        print(f"✅ Đã lưu kết quả {type_key} kỳ {ky}")
+    except Exception as e:
+        print(f"❌ Lỗi lưu Sheets: {e}")
+
+def load_results(type_key):
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet(type_key)
+        rows = ws.get_all_values()
+        if len(rows) <= 1:
+            return []
+        results = []
+        for row in rows[1:]:  # bỏ header
+            if len(row) >= 7:
+                results.append(row)
+        return results
+    except Exception as e:
+        print(f"❌ Lỗi đọc Sheets: {e}")
+        return []
+
+def fetch_latest_result(type_key):
+    """Fetch kết quả mới nhất từ lotto-8.com"""
+    cfg = CONFIGS[type_key]
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(f"{cfg['url']}?indexpage=1&orderby=new", headers=headers, timeout=10)
+        soup = BeautifulSoup(r.text, "html.parser")
+        rows = soup.select("table tr")
+        for row in rows:
+            cells = row.find_all("td")
+            if len(cells) < 2:
+                continue
+            nums = [int(n) for n in re.findall(r"\d+", cells[1].get_text()) if 1 <= int(n) <= cfg["n"]]
+            if len(nums) == cfg["k"]:
+                ky = cells[0].get_text(strip=True) if cells else "?"
+                special = None
+                if cfg.get("has_special") and len(cells) >= 3:
+                    sp = re.findall(r"\d+", cells[2].get_text())
+                    if sp and 1 <= int(sp[0]) <= cfg.get("special_n", 12):
+                        special = int(sp[0])
+                return ky, nums, special
+    except Exception as e:
+        print(f"❌ Lỗi fetch kết quả {type_key}: {e}")
+    return None, None, None
+
+def compute_freq_from_sheet(type_key):
+    """Tính tần suất từ dữ liệu Google Sheets"""
+    cfg = CONFIGS[type_key]
+    results = load_results(type_key)
+    freq = {i: 0 for i in range(1, cfg["n"] + 1)}
+    sp_freq = {i: 0 for i in range(1, cfg.get("special_n", 12) + 1)}
+    for row in results:
+        try:
+            nums = [int(row[i]) for i in range(2, 2 + cfg["k"])]
+            for n in nums:
+                if n in freq:
+                    freq[n] += 1
+            if cfg.get("has_special") and len(row) > 2 + cfg["k"]:
+                sp = int(row[2 + cfg["k"]])
+                if sp in sp_freq:
+                    sp_freq[sp] += 1
+        except:
+            continue
+    return freq, sp_freq, len(results)
+
+async def post_result(type_key):
+    """Fetch kết quả, lưu Sheets, báo Discord"""
+    channel = client.get_channel(DISCORD_CHANNEL_ID)
+    if not channel:
+        print(f"❌ Không tìm thấy channel {DISCORD_CHANNEL_ID}")
+        return
+
+    cfg = CONFIGS[type_key]
+    ngay = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+
+    await channel.send(f"⏳ Đang lấy kết quả **{cfg['label']}** kỳ hôm nay...")
+
+    # Thử fetch tối đa 5 lần, cách nhau 2 phút
+    ky, numbers, special = None, None, None
+    for attempt in range(5):
+        ky, numbers, special = fetch_latest_result(type_key)
+        if numbers:
+            break
+        await asyncio.sleep(120)
+
+    if not numbers:
+        await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']} hôm nay. Thử lại sau!")
+        return
+
+    # Lưu vào Google Sheets
+    save_result(type_key, ngay, ky, numbers, special)
+
+    # Tính thống kê từ Sheets
+    freq, sp_freq, total_draws = compute_freq_from_sheet(type_key)
+    sorted_f = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+
+    # Build embed kết quả
+    embed = discord.Embed(
+        title=f"🎰 Kết quả {cfg['label']} — {ngay}",
+        color=0xE74C3C
+    )
+    embed.add_field(name="🎯 Kỳ", value=f"**{ky}**", inline=True)
+
+    nums_display = " ".join(f"`{n:02d}`" for n in numbers)
+    embed.add_field(name="Kết quả", value=nums_display, inline=False)
+    if special:
+        sp_label = "Số đặc biệt" if type_key == "535" else "Số Power"
+        embed.add_field(name=sp_label, value=f"`{special:02d}`", inline=True)
+
+    # Phân tích: số nào hot/cold so với lịch sử
+    if total_draws > 0:
+        avg = sum(freq.values()) / cfg["n"]
+        hot_this = [n for n in numbers if freq.get(n, 0) >= avg]
+        cold_this = [n for n in numbers if freq.get(n, 0) < avg]
+        embed.add_field(
+            name=f"📊 Phân tích (từ {total_draws} kỳ lưu)",
+            value=(
+                f"🔥 Số nóng ra hôm nay: {' '.join(f'`{n:02d}`' for n in hot_this) or 'Không có'}\n"
+                f"🧊 Số lạnh ra hôm nay: {' '.join(f'`{n:02d}`' for n in cold_this) or 'Không có'}"
+            ),
+            inline=False
+        )
+        top3_hot = [n for n, _ in sorted_f[:3]]
+        top3_cold = [n for n, _ in sorted_f[-3:]]
+        embed.add_field(name="🔥 Top 3 nóng nhất (lịch sử)", value=" ".join(f"`{n:02d}`" for n in top3_hot), inline=True)
+        embed.add_field(name="🧊 Top 3 lạnh nhất (lịch sử)", value=" ".join(f"`{n:02d}`" for n in top3_cold), inline=True)
+
+    embed.set_footer(text="Dữ liệu tự lưu từ bot · Dùng /thongke để xem chi tiết")
+    embed.timestamp = datetime.utcnow()
+    await channel.send(embed=embed)
+    print(f"✅ Đã báo kết quả {type_key}")
+
+# ==========================================
+# SCHEDULER
+# ==========================================
+import asyncio
+
+async def scheduler():
+    """Chạy nền, check giờ xổ mỗi phút"""
+    print("⏰ Scheduler đã khởi động")
+    while True:
+        now = datetime.now(VN_TZ)
+        wd = now.weekday()
+        h, m = now.hour, now.minute
+        for type_key, lich in LICH_XO.items():
+            for (ngay_xo, gio, phut) in lich:
+                if wd == ngay_xo and h == gio and m == phut:
+                    print(f"🎯 Đến giờ xổ {type_key}!")
+                    await post_result(type_key)
+        await asyncio.sleep(60)
+
+# ==========================================
+# SLASH COMMANDS MỚI
+# ==========================================
+@tree.command(name="ketqua", description="Xem kết quả xổ số mới nhất")
+@app_commands.describe(loai="Loại vé muốn xem")
+@app_commands.choices(loai=[
+    app_commands.Choice(name="Lotto 5/35", value="535"),
+    app_commands.Choice(name="Mega 6/45", value="645"),
+    app_commands.Choice(name="Power 6/55", value="655"),
+])
+async def cmd_ketqua(interaction: discord.Interaction, loai: app_commands.Choice[str]):
+    cfg = CONFIGS[loai.value]
+    await interaction.response.defer(thinking=True)
+    try:
+        ky, numbers, special = fetch_latest_result(loai.value)
+        if not numbers:
+            await interaction.followup.send("⚠️ Không lấy được kết quả. Thử lại sau!")
+            return
+        embed = discord.Embed(title=f"🎰 Kết quả mới nhất — {cfg['label']}", color=0xE74C3C)
+        embed.add_field(name="Kỳ", value=f"**{ky}**", inline=True)
+        embed.add_field(name="Kết quả", value=" ".join(f"`{n:02d}`" for n in numbers), inline=False)
+        if special:
+            embed.add_field(name="Số đặc biệt" if loai.value == "535" else "Số Power", value=f"`{special:02d}`", inline=True)
+        embed.timestamp = datetime.utcnow()
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Lỗi: {str(e)}")
+
+@tree.command(name="thongke", description="Thống kê hot/cold từ dữ liệu tự lưu")
+@app_commands.describe(loai="Loại vé muốn xem")
+@app_commands.choices(loai=[
+    app_commands.Choice(name="Lotto 5/35", value="535"),
+    app_commands.Choice(name="Mega 6/45", value="645"),
+    app_commands.Choice(name="Power 6/55", value="655"),
+])
+async def cmd_thongke(interaction: discord.Interaction, loai: app_commands.Choice[str]):
+    cfg = CONFIGS[loai.value]
+    await interaction.response.defer(thinking=True)
+    try:
+        freq, sp_freq, total = compute_freq_from_sheet(loai.value)
+        if total == 0:
+            await interaction.followup.send(f"⚠️ Chưa có dữ liệu lưu cho {cfg['label']}. Đợi sau kỳ xổ đầu tiên nhé!")
+            return
+        sorted_f = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+        max_c = sorted_f[0][1]
+        def bar(c): return "█" * round(c/max_c*10) + "░" * (10-round(c/max_c*10))
+
+        embed = discord.Embed(title=f"📊 Thống kê {cfg['label']} — Dữ liệu tự lưu", color=0x9B59B6)
+        embed.add_field(name="Tổng kỳ đã lưu", value=f"**{total}** kỳ", inline=True)
+        embed.add_field(name="Số nóng nhất", value=f"**{sorted_f[0][0]:02d}** ({sorted_f[0][1]}x)", inline=True)
+        embed.add_field(name="Số lạnh nhất", value=f"**{sorted_f[-1][0]:02d}** ({sorted_f[-1][1]}x)", inline=True)
+        embed.add_field(
+            name="🔥 Top 5 nóng",
+            value="\n".join(f"`{n:02d}` {bar(c)} {c}x" for n, c in sorted_f[:5]),
+            inline=True
+        )
+        embed.add_field(
+            name="🧊 Top 5 lạnh",
+            value="\n".join(f"`{n:02d}` {bar(c)} {c}x" for n, c in sorted_f[-5:][::-1]),
+            inline=True
+        )
+        if cfg.get("has_special") and any(v > 0 for v in sp_freq.values()):
+            sorted_sp = sorted(sp_freq.items(), key=lambda x: x[1], reverse=True)
+            sp_label = "Số đặc biệt" if loai.value == "535" else "Số Power"
+            embed.add_field(
+                name=f"🎯 {sp_label} nóng nhất",
+                value=" ".join(f"`{n:02d}`({c}x)" for n, c in sorted_sp[:5]),
+                inline=False
+            )
+        embed.set_footer(text="Dữ liệu tự thu thập bởi bot")
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Lỗi: {str(e)}")
+
+@tree.command(name="sosanhso", description="So sánh bộ số đã mua với kết quả mới nhất")
+@app_commands.describe(
+    loai="Loại vé",
+    boSo="Nhập bộ số cách nhau bởi dấu cách (vd: 03 08 14 22 31)"
+)
+@app_commands.choices(loai=[
+    app_commands.Choice(name="Lotto 5/35", value="535"),
+    app_commands.Choice(name="Mega 6/45", value="645"),
+    app_commands.Choice(name="Power 6/55", value="655"),
+])
+async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choice[str], boSo: str):
+    cfg = CONFIGS[loai.value]
+    await interaction.response.defer(thinking=True)
+    try:
+        # Parse bộ số người dùng nhập
+        input_nums = [int(n) for n in re.findall(r"\d+", boSo)]
+        if len(input_nums) != cfg["k"]:
+            await interaction.followup.send(f"⚠️ {cfg['label']} cần đúng **{cfg['k']} số**. Bạn nhập {len(input_nums)} số.")
+            return
+
+        ky, result_nums, special = fetch_latest_result(loai.value)
+        if not result_nums:
+            await interaction.followup.send("⚠️ Không lấy được kết quả. Thử lại sau!")
+            return
+
+        trung = sorted(set(input_nums) & set(result_nums))
+        so_trung = len(trung)
+
+        embed = discord.Embed(
+            title=f"🔍 So sánh bộ số — {cfg['label']}",
+            color=0x2ECC71 if so_trung >= 3 else 0x95A5A6
+        )
+        embed.add_field(name="Kỳ xổ", value=f"**{ky}**", inline=True)
+        embed.add_field(name="Kết quả", value=" ".join(f"`{n:02d}`" for n in result_nums), inline=False)
+        embed.add_field(name="Bộ số của bạn", value=" ".join(f"`{n:02d}`" for n in sorted(input_nums)), inline=False)
+
+        if trung:
+            embed.add_field(
+                name=f"✅ Trúng {so_trung} số",
+                value=" ".join(f"`{n:02d}`" for n in trung),
+                inline=False
+            )
+        else:
+            embed.add_field(name="❌ Không trúng số nào", value="Chúc may mắn lần sau!", inline=False)
+
+        if special:
+            sp_label = "Số đặc biệt" if loai.value == "535" else "Số Power"
+            embed.add_field(name=sp_label, value=f"`{special:02d}`", inline=True)
+
+        embed.timestamp = datetime.utcnow()
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Lỗi: {str(e)}")
+
