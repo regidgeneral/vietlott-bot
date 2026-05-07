@@ -14,11 +14,11 @@ TOKEN = os.environ.get("DISCORD_TOKEN", "")
 
 CONFIGS = {
     "535": {"n": 35, "k": 5, "has_special": True,  "special_n": 12, "label": "Lotto 5/35",  "sms_prefix": "535",
-            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/p535.jsonl"},
+            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/power535.jsonl"},
     "645": {"n": 45, "k": 6, "has_special": False, "label": "Mega 6/45",  "sms_prefix": "645",
-            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/p645.jsonl"},
+            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/power645.jsonl"},
     "655": {"n": 55, "k": 6, "has_special": True,  "special_n": 10, "label": "Power 6/55", "sms_prefix": "655",
-            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/p655.jsonl"},
+            "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/power655.jsonl"},
 }
 
 GIOI_HAN_NGAY = {"535": 1_000_000, "645": 2_100_000, "655": 2_100_000}
