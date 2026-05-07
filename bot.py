@@ -815,7 +815,7 @@ async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choi
     loai="Loai ve",
     ngay="Ngay xo (dd/mm/yyyy, vd: 07/05/2026)",
     ky="So ky (vd: 00623)",
-    so1="So thu 1", so2="So thu 2", so2="So thu 2", so3="So thu 3",
+    so1="So thu 1", so2="So thu 2", so3="So thu 3",
     so4="So thu 4", so5="So thu 5", so6="So thu 6 (chi 645/655)",
     dacbiet="So dac biet / Power (chi 535/655)"
 )
