@@ -59,6 +59,52 @@ _cache = {}
 # ==========================================
 # FETCH & COMPUTE
 # ==========================================
+def parse_jsonl_line(line, cfg):
+    """
+    Parse 1 dòng JSONL theo từng loại vé:
+    - 535: result có 6 phần tử [s1,s2,s3,s4,s5, db] — db là số đặc biệt (1-12)
+    - 645: result có 6 phần tử [s1,s2,s3,s4,s5,s6] — không có đặc biệt
+    - 655: result có 7 phần tử [s1,s2,s3,s4,s5,s6, pw] — pw là số Power (1-10)
+    """
+    data = json.loads(line)
+    result = [int(x) for x in data.get("result", [])]
+    key = cfg["sms_prefix"]
+
+    if key == "535":
+        # 6 phần tử: 5 số chính + 1 đặc biệt
+        if len(result) != 6:
+            return None, None
+        nums    = result[:5]
+        special = result[5]
+        if not all(1 <= n <= 35 for n in nums):
+            return None, None
+        if not (1 <= special <= 12):
+            special = None
+
+    elif key == "645":
+        # 6 phần tử: 6 số chính
+        if len(result) != 6:
+            return None, None
+        nums    = result[:6]
+        special = None
+        if not all(1 <= n <= 45 for n in nums):
+            return None, None
+
+    elif key == "655":
+        # 7 phần tử: 6 số chính + 1 Power
+        if len(result) != 7:
+            return None, None
+        nums    = result[:6]
+        special = result[6]
+        if not all(1 <= n <= 55 for n in nums):
+            return None, None
+        if not (1 <= special <= 10):
+            special = None
+    else:
+        return None, None
+
+    return nums, special
+
 def fetch_history(cfg):
     """Fetch toàn bộ lịch sử từ GitHub vietvudanh/vietlott-data (JSONL)"""
     key = cfg["sms_prefix"]
@@ -71,23 +117,24 @@ def fetch_history(cfg):
         if r.status_code != 200:
             print(f"❌ Không tải được JSONL {key}: HTTP {r.status_code}")
             return [], []
+
+        count = 0
         for line in r.text.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
             try:
-                data = json.loads(line)
-                result  = data.get("result", [])
-                special = data.get("special", None)
-                if len(result) == cfg["k"]:
-                    all_numbers.extend([int(n) for n in result if 1 <= int(n) <= cfg["n"]])
-                    if cfg.get("has_special") and special is not None:
-                        sp_val = int(special)
-                        if 1 <= sp_val <= cfg.get("special_n", 12):
-                            all_specials.append(sp_val)
+                nums, special = parse_jsonl_line(line, cfg)
+                if nums is None:
+                    continue
+                all_numbers.extend(nums)
+                if cfg.get("has_special") and special is not None:
+                    all_specials.append(special)
+                count += 1
             except Exception:
                 continue
-        print(f"✅ Fetch JSONL {key}: {len(all_numbers)//cfg['k']} kỳ")
+
+        print(f"✅ Fetch JSONL {key}: {count} kỳ")
     except Exception as e:
         print(f"❌ Lỗi fetch JSONL {key}: {e}")
 
@@ -536,16 +583,17 @@ def fetch_latest_result(type_key):
             return None, None, None
         # Dòng cuối = kỳ mới nhất
         data = json.loads(lines[-1])
-        ky      = str(data.get("id", "?")).zfill(5)
-        date    = data.get("date", "")
+        ky   = str(data.get("id", "?")).zfill(5)
+        date = data.get("date", "")
         if date and len(date) == 10:
             y, m, d = date.split("-")
             date = f"{d}/{m}/{y}"
-        result  = [int(n) for n in data.get("result", [])]
-        special = data.get("special", None)
-        if special is not None:
-            special = int(special)
-        return f"{ky} ({date})", result, special
+
+        nums, special = parse_jsonl_line(lines[-1], cfg)
+        if nums is None:
+            return None, None, None
+
+        return f"{ky} ({date})", nums, special
     except Exception as e:
         print(f"❌ Lỗi fetch latest {type_key}: {e}")
     return None, None, None
