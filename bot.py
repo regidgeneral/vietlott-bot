@@ -610,6 +610,54 @@ async def post_result(type_key):
     await channel.send(embed=embed)
     print(f"✅ Đã báo kết quả {type_key}")
 
+    # Gợi ý luôn 5 bộ số cho kỳ tiếp theo
+    await asyncio.sleep(3)
+    try:
+        numbers_hist, specials_hist = fetch_history(cfg)
+        freq = compute_freq(numbers_hist, cfg["n"])
+        sp_freq = compute_freq(specials_hist, cfg.get("special_n", 12)) if specials_hist else None
+        sorted_f = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+
+        embed2 = discord.Embed(
+            title=f"🎯 Gợi ý 5 bộ số kỳ tiếp — {cfg['label']}",
+            color=0x1D9E75
+        )
+        embed2.add_field(name="🔥 Hot", value=" ".join(f"`{n:02d}`" for n, _ in sorted_f[:3]), inline=True)
+        embed2.add_field(name="🧊 Cold", value=" ".join(f"`{n:02d}`" for n, _ in sorted_f[-3:]), inline=True)
+        embed2.add_field(name="​", value="​", inline=True)
+
+        all_sets, seen = [], set()
+        for i in range(5):
+            nums = generate_nums(freq, cfg["n"], cfg["k"], seen)
+            seen.add(tuple(nums))
+            sp = None
+            if cfg.get("has_special") and sp_freq:
+                sp_sorted = sorted(sp_freq.items(), key=lambda x: x[1], reverse=True)
+                sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
+            all_sets.append((nums, sp))
+            disp = " ".join(f"`{n:02d}`" for n in nums)
+            extra = f"  |  {'DB' if type_key=='535' else 'Power'}: `{sp:02d}`" if sp else ""
+            embed2.add_field(name=f"Bộ {i+1}", value=disp + extra, inline=False)
+
+        # Build SMS
+        if type_key == "535":
+            s_parts = []
+            for nums, sp in all_sets:
+                main_str = " ".join(f"{n:02d}" for n in nums[:-1])
+                last = f"{nums[-1]:02d}-{sp:02d}"
+                s_parts.append(f"S {main_str} {last}")
+            sms = f"535 K1 " + " ".join(s_parts)
+        else:
+            s_parts = ["S " + " ".join(f"{n:02d}" for n in nums) for nums, _ in all_sets]
+            sms = f"{cfg['sms_prefix']} K1 " + " ".join(s_parts)
+
+        embed2.set_footer(text="⚠️ Chi de vui, khong dam bao trung thuong!")
+        embed2.timestamp = datetime.utcnow()
+        await channel.send(embed=embed2, view=make_button(sms))
+        print(f"✅ Đã gợi ý bộ số kỳ tiếp {type_key}")
+    except Exception as e:
+        print(f"❌ Lỗi gợi ý bộ số: {e}")
+
 # ==========================================
 # SCHEDULER
 # ==========================================
