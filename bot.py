@@ -462,23 +462,17 @@ LICH_XO = {
 DISCORD_CHANNEL_ID = int(os.environ.get("DISCORD_CHANNEL_ID", "0"))
 
 def get_sheet():
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS", "{}")
-    # Thử parse JSON, nếu lỗi in ra để debug
-    try:
-        creds_dict = json.loads(creds_json)
-    except json.JSONDecodeError as e:
-        print(f"❌ JSON parse error: {e}")
-        print(f"❌ First 100 chars: {creds_json[:100]}")
-        raise
-    # Kiểm tra các field bắt buộc
-    required = ["client_email", "token_uri", "private_key"]
-    missing = [f for f in required if f not in creds_dict]
-    if missing:
-        print(f"❌ Missing fields: {missing}")
-        print(f"❌ Available fields: {list(creds_dict.keys())}")
-        raise ValueError(f"Missing fields: {missing}")
+    import base64
     scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    # Đọc từ base64 env variable
+    creds_b64 = os.environ.get("GOOGLE_CREDENTIALS_B64", "")
+    if creds_b64:
+        print("✅ Đọc credentials từ base64 env")
+        creds_json = base64.b64decode(creds_b64).decode("utf-8")
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    else:
+        raise ValueError("Khong tim thay GOOGLE_CREDENTIALS_B64 trong env!")
     gc = gspread.authorize(creds)
     sheet_id = os.environ.get("GOOGLE_SHEET_ID", "")
     return gc.open_by_key(sheet_id)
