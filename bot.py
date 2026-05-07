@@ -32,21 +32,21 @@ CONFIGS = {
 GIOI_HAN_NGAY = {"535": 1_000_000, "645": 2_100_000, "655": 2_100_000}
 
 BAO_535 = {
-    "bc4": {"label": "BC4 – Bao 4 so chinh",    "gia": 310000, "type": "bc", "n_main": 4},
-    "bc6": {"label": "BC6 – Bao 6 so chinh",    "gia": 60000,  "type": "bc", "n_main": 6},
-    "bc7": {"label": "BC7 – Bao 7 so chinh",    "gia": 210000, "type": "bc", "n_main": 7},
-    "bc8": {"label": "BC8 – Bao 8 so chinh",    "gia": 560000, "type": "bc", "n_main": 8},
-    "bd2": {"label": "BD2 – Bao 2 so dac biet", "gia": 20000,  "type": "bd", "n_sp": 2},
-    "bd3": {"label": "BD3 – Bao 3 so dac biet", "gia": 30000,  "type": "bd", "n_sp": 3},
-    "bd4": {"label": "BD4 – Bao 4 so dac biet", "gia": 40000,  "type": "bd", "n_sp": 4},
-    "bd5": {"label": "BD5 – Bao 5 so dac biet", "gia": 50000,  "type": "bd", "n_sp": 5},
-    "bd6": {"label": "BD6 – Bao 6 so dac biet", "gia": 60000,  "type": "bd", "n_sp": 6},
-    "bd7": {"label": "BD7 – Bao 7 so dac biet", "gia": 70000,  "type": "bd", "n_sp": 7},
-    "bd8": {"label": "BD8 – Bao 8 so dac biet", "gia": 80000,  "type": "bd", "n_sp": 8},
-    "bd9": {"label": "BD9 – Bao 9 so dac biet", "gia": 90000,  "type": "bd", "n_sp": 9},
-    "bd10":{"label": "BD10 – Bao 10 so dac biet","gia": 100000, "type": "bd", "n_sp": 10},
-    "bd11":{"label": "BD11 – Bao 11 so dac biet","gia": 110000, "type": "bd", "n_sp": 11},
-    "bd12":{"label": "BD12 – Bao 12 so dac biet","gia": 120000, "type": "bd", "n_sp": 12},
+    "bc4": {"label": "BC4 – Bao 4 số chính",    "giá": 310000, "type": "bc", "n_main": 4},
+    "bc6": {"label": "BC6 – Bao 6 số chính",    "giá": 60000,  "type": "bc", "n_main": 6},
+    "bc7": {"label": "BC7 – Bao 7 số chính",    "giá": 210000, "type": "bc", "n_main": 7},
+    "bc8": {"label": "BC8 – Bao 8 số chính",    "giá": 560000, "type": "bc", "n_main": 8},
+    "bd2": {"label": "BD2 – Bao 2 số đặc biệt", "giá": 20000,  "type": "bd", "n_sp": 2},
+    "bd3": {"label": "BD3 – Bao 3 số đặc biệt", "giá": 30000,  "type": "bd", "n_sp": 3},
+    "bd4": {"label": "BD4 – Bao 4 số đặc biệt", "giá": 40000,  "type": "bd", "n_sp": 4},
+    "bd5": {"label": "BD5 – Bao 5 số đặc biệt", "giá": 50000,  "type": "bd", "n_sp": 5},
+    "bd6": {"label": "BD6 – Bao 6 số đặc biệt", "giá": 60000,  "type": "bd", "n_sp": 6},
+    "bd7": {"label": "BD7 – Bao 7 số đặc biệt", "giá": 70000,  "type": "bd", "n_sp": 7},
+    "bd8": {"label": "BD8 – Bao 8 số đặc biệt", "giá": 80000,  "type": "bd", "n_sp": 8},
+    "bd9": {"label": "BD9 – Bao 9 số đặc biệt", "giá": 90000,  "type": "bd", "n_sp": 9},
+    "bd10":{"label": "BD10 – Bao 10 số đặc biệt","giá": 100000, "type": "bd", "n_sp": 10},
+    "bd11":{"label": "BD11 – Bao 11 số đặc biệt","giá": 110000, "type": "bd", "n_sp": 11},
+    "bd12":{"label": "BD12 – Bao 12 số đặc biệt","giá": 120000, "type": "bd", "n_sp": 12},
 }
 
 BAO_645_655 = {
@@ -295,7 +295,7 @@ def make_sms_link(sms_text):
 def make_button(sms_text):
     view = discord.ui.View()
     view.add_item(discord.ui.Button(
-        label="📱 Mo SMS → gui 9969",
+        label="📱 Mở SMS → gửi 9969",
         url=make_sms_link(sms_text),
         style=discord.ButtonStyle.link
     ))
@@ -411,9 +411,9 @@ async def run_pick(interaction, type_key, so_luong):
             embed.add_field(name=f"Bo {i+1}", value=disp + extra, inline=False)
 
         tong = so_luong * 10000
-        embed.add_field(name="Tong tien", value=fmt_gia(tong), inline=False)
+        embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
-        embed.set_footer(text="Chi de vui — khong dam bao trung thuong!")
+        embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
         await interaction.followup.send(embed=embed, view=make_button(sms))
     except Exception as e:
@@ -424,7 +424,7 @@ async def run_bao535(interaction, bao_key, so_bo):
     so_bo_max = max_bo(info["gia"], "535")
     if so_bo > so_bo_max:
         await interaction.response.send_message(
-            f"⚠️ {info['label']} gia {fmt_gia(info['gia'])}/bo → toi da **{so_bo_max} bo** ({fmt_gia(GIOI_HAN_NGAY['535'])}/ngay)",
+            f"⚠️ {info['label']} giá {fmt_gia(info['gia'])}/bộ → tối đa **{so_bo_max} bộ** ({fmt_gia(GIOI_HAN_NGAY['535'])}/ngày)",
             ephemeral=True)
         return
     await interaction.response.defer(thinking=True)
@@ -435,7 +435,7 @@ async def run_bao535(interaction, bao_key, so_bo):
         sorted_sp = sorted(sp_freq.items(), key=lambda x: x[1], reverse=True)
 
         embed = discord.Embed(title=f"🎰 {info['label']} — Lotto 5/35", color=0x9B59B6)
-        embed.add_field(name="Gioi han ngay", value=f"Toi da {so_bo_max} bo ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
+        embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
 
         seen, s_parts = set(), []
         for i in range(so_bo):
@@ -448,7 +448,7 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums[:-1])
                 last = f"{main_nums[-1]:02d}-{special:02d}"
                 s_parts.append(f"S {main_str} {last}")
-                embed.add_field(name=f"Bo {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  DB: `{special:02d}`", inline=False)
+                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: `{special:02d}`", inline=False)
             else:
                 main_nums = generate_nums(freq, 35, 5, seen, days_since)
                 seen.add(tuple(main_nums))
@@ -456,12 +456,12 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums)
                 sp_str = f"{specials_picked[0]:02d}" + (" " + " ".join(f"{n:02d}" for n in specials_picked[1:]) if len(specials_picked) > 1 else "")
                 s_parts.append(f"S {main_str}-{sp_str}")
-                embed.add_field(name=f"Bo {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  DB: {' '.join(f'`{n:02d}`' for n in specials_picked)}", inline=False)
+                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: {' '.join(f'`{n:02d}`' for n in specials_picked)}", inline=False)
 
         tong = so_bo * info["gia"]
-        embed.add_field(name="Tong tien", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} han muc ngay", inline=False)
+        embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
-        embed.set_footer(text="Chi de vui — khong dam bao trung thuong!")
+        embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
         await interaction.followup.send(embed=embed, view=make_button(sms))
     except Exception as e:
@@ -474,7 +474,7 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
     so_bo_max = max_bo(gia, type_key)
     if so_bo > so_bo_max:
         await interaction.response.send_message(
-            f"⚠️ {info['label']} gia {fmt_gia(gia)}/bo → toi da **{so_bo_max} bo** ({fmt_gia(GIOI_HAN_NGAY[type_key])}/ngay)",
+            f"⚠️ {info['label']} giá {fmt_gia(gia)}/bộ → tối đa **{so_bo_max} bộ** ({fmt_gia(GIOI_HAN_NGAY[type_key])}/ngày)",
             ephemeral=True)
         return
     await interaction.response.defer(thinking=True)
@@ -483,23 +483,23 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         freq = compute_freq(numbers, cfg["n"])
 
         embed = discord.Embed(title=f"🎰 {info['label']} — {cfg['label']}", color=0x9B59B6)
-        embed.add_field(name="Gioi han ngay", value=f"Toi da {so_bo_max} bo ({fmt_gia(GIOI_HAN_NGAY[type_key])} / {fmt_gia(gia)})", inline=False)
+        embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY[type_key])} / {fmt_gia(gia)})", inline=False)
 
         seen, s_parts = set(), []
         for i in range(so_bo):
             nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since)
             seen.add(tuple(nums))
             s_parts.append("S " + " ".join(f"{n:02d}" for n in nums))
-            embed.add_field(name=f"Bo {i+1}", value=" ".join(f"`{n:02d}`" for n in nums), inline=False)
+            embed.add_field(name=f"Bộ {i+1}", value=" ".join(f"`{n:02d}`" for n in nums), inline=False)
 
         tong = so_bo * gia
-        embed.add_field(name="Tong tien", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} han muc ngay", inline=False)
+        embed.add_field(name="Tông tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
-        embed.set_footer(text="Chi de vui — khong dam bao trung thuong!")
+        embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
         await interaction.followup.send(embed=embed, view=make_button(sms))
     except Exception as e:
-        await interaction.followup.send(f"❌ Loi: {str(e)}")
+        await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
 # ==========================================
 # TỰ ĐỘNG BÁO KẾT QUẢ SAU GIỜ XỔ
@@ -521,16 +521,16 @@ async def post_result(type_key):
         await asyncio.sleep(120)
 
     if not numbers:
-        await channel.send(f"⚠️ Khong lay duoc ket qua {cfg['label']}!")
+        await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']}!")
         return
 
     save_result(type_key, ngay, ky, numbers, special)
 
-    embed = discord.Embed(title=f"🎰 Ket qua {cfg['label']} — {ngay}", color=0xE74C3C)
-    embed.add_field(name="Ky", value=f"**{ky}**", inline=True)
-    embed.add_field(name="Ket qua", value=" ".join(f"`{n:02d}`" for n in numbers), inline=False)
+    embed = discord.Embed(title=f"🎰 Kết quả {cfg['label']} — {ngay}", color=0xE74C3C)
+    embed.add_field(name="Kỳ", value=f"**{ky}**", inline=True)
+    embed.add_field(name="Kết quả", value=" ".join(f"`{n:02d}`" for n in numbers), inline=False)
     if special:
-        embed.add_field(name="Dac biet" if type_key == "535" else "Power", value=f"`{special:02d}`", inline=True)
+        embed.add_field(name="Đặc biệt" if type_key == "535" else "Power", value=f"`{special:02d}`", inline=True)
     embed.timestamp = datetime.utcnow()
     await channel.send(embed=embed)
 
@@ -540,7 +540,7 @@ async def post_result(type_key):
     freq = compute_freq(all_nums, cfg["n"])
     sp_freq = compute_freq(all_sp, cfg.get("special_n", 55)) if all_sp else None
 
-    embed2 = discord.Embed(title=f"🎯 Goi y 5 bo so ky tiep — {cfg['label']}", color=0x1D9E75)
+    embed2 = discord.Embed(title=f"🎯 Gợi ý 5 bộ số kì tiếp — {cfg['label']}", color=0x1D9E75)
     all_sets, seen = [], set()
     for i in range(5):
         nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since)
@@ -551,11 +551,11 @@ async def post_result(type_key):
             sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
         all_sets.append((nums, sp))
         disp = " ".join(f"`{n:02d}`" for n in nums)
-        extra = f"  |  DB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
+        extra = f"  |  ĐB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
         embed2.add_field(name=f"Bo {i+1}", value=disp + extra, inline=False)
 
     sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
-    embed2.set_footer(text="Chi de vui — khong dam bao trung thuong!")
+    embed2.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
     embed2.timestamp = datetime.utcnow()
     await channel.send(embed=embed2, view=make_button(sms))
 
@@ -573,67 +573,67 @@ async def scheduler():
 # ==========================================
 # SLASH COMMANDS
 # ==========================================
-@tree.command(name="535", description="Go y bo so Lotto 5/35 kem SMS")
-@app_commands.describe(so_luong="So bo muon mua (1-10)")
+@tree.command(name="535", description="Gợi ý bộ số Lotto 5/35 kèm SMS")
+@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
 async def cmd_535(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "535", so_luong)
 
-@tree.command(name="645", description="Go y bo so Mega 6/45 kem SMS")
-@app_commands.describe(so_luong="So bo muon mua (1-10)")
+@tree.command(name="645", description="Gợi ý bộ số Mega 6/45 kèm SMS")
+@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
 async def cmd_645(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "645", so_luong)
 
-@tree.command(name="655", description="Go y bo so Power 6/55 kem SMS")
-@app_commands.describe(so_luong="So bo muon mua (1-10)")
+@tree.command(name="655", description="Gợi ý bộ số Power 6/55 kèm SMS")
+@app_commands.describe(so_luong="Số bộ muốn mua (1-10)")
 async def cmd_655(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "655", so_luong)
 
 # Bao 535
 bao535_choices = [
-    app_commands.Choice(name="BC4 – Bao 4 so chinh (310.000d) – max 3 bo",    value="bc4"),
-    app_commands.Choice(name="BC6 – Bao 6 so chinh (60.000d) – max 16 bo",    value="bc6"),
-    app_commands.Choice(name="BC7 – Bao 7 so chinh (210.000d) – max 4 bo",    value="bc7"),
-    app_commands.Choice(name="BC8 – Bao 8 so chinh (560.000d) – max 1 bo",    value="bc8"),
-    app_commands.Choice(name="BD2 – Bao 2 so dac biet (20.000d) – max 50 bo", value="bd2"),
-    app_commands.Choice(name="BD3 – Bao 3 so dac biet (30.000d) – max 33 bo", value="bd3"),
-    app_commands.Choice(name="BD4 – Bao 4 so dac biet (40.000d) – max 25 bo", value="bd4"),
-    app_commands.Choice(name="BD5 – Bao 5 so dac biet (50.000d) – max 20 bo", value="bd5"),
-    app_commands.Choice(name="BD6 – Bao 6 so dac biet (60.000d) – max 16 bo", value="bd6"),
-    app_commands.Choice(name="BD7 – Bao 7 so dac biet (70.000d) – max 14 bo", value="bd7"),
-    app_commands.Choice(name="BD8 – Bao 8 so dac biet (80.000d) – max 12 bo", value="bd8"),
-    app_commands.Choice(name="BD9 – Bao 9 so dac biet (90.000d) – max 11 bo", value="bd9"),
-    app_commands.Choice(name="BD10 – Bao 10 so dac biet (100.000d) – max 10 bo", value="bd10"),
-    app_commands.Choice(name="BD11 – Bao 11 so dac biet (110.000d) – max 9 bo",  value="bd11"),
-    app_commands.Choice(name="BD12 – Bao 12 so dac biet (120.000d) – max 8 bo",  value="bd12"),
+    app_commands.Choice(name="BC4 – Bao 4 số chính (310.000d) – max 3 bộ",    value="bc4"),
+    app_commands.Choice(name="BC6 – Bao 6 số chính (60.000d) – max 16 bộ",    value="bc6"),
+    app_commands.Choice(name="BC7 – Bao 7 số chính (210.000d) – max 4 bộ",    value="bc7"),
+    app_commands.Choice(name="BC8 – Bao 8 số chính (560.000d) – max 1 bộ",    value="bc8"),
+    app_commands.Choice(name="BD2 – Bao 2 số đặc biệt (20.000d) – max 50 bộ", value="bd2"),
+    app_commands.Choice(name="BD3 – Bao 3 số đặc biệt (30.000d) – max 33 bộ", value="bd3"),
+    app_commands.Choice(name="BD4 – Bao 4 số đặc biệt (40.000d) – max 25 bộ", value="bd4"),
+    app_commands.Choice(name="BD5 – Bao 5 số đặc biệt (50.000d) – max 20 bộ", value="bd5"),
+    app_commands.Choice(name="BD6 – Bao 6 số đặc biệt (60.000d) – max 16 bộ", value="bd6"),
+    app_commands.Choice(name="BD7 – Bao 7 số đặc biệt (70.000d) – max 14 bộ", value="bd7"),
+    app_commands.Choice(name="BD8 – Bao 8 số đặc biệt (80.000d) – max 12 bộ", value="bd8"),
+    app_commands.Choice(name="BD9 – Bao 9 số đặc biệt (90.000d) – max 11 bộ", value="bd9"),
+    app_commands.Choice(name="BD10 – Bao 10 số đặc biệt (100.000d) – max 10 bộ", value="bd10"),
+    app_commands.Choice(name="BD11 – Bao 11 số đặc biệt (110.000d) – max 9 bộ",  value="bd11"),
+    app_commands.Choice(name="BD12 – Bao 12 số đặc biệt (120.000d) – max 8 bộ",  value="bd12"),
 ]
-@tree.command(name="bao535", description="Bao so Lotto 5/35 kem SMS")
-@app_commands.describe(loai="Chon loai bao so", so_bo="So bo muon mua")
+@tree.command(name="bao535", description="Bao số Lotto 5/35 kèm SMS")
+@app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao535_choices)
 async def cmd_bao535(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 50] = 1):
     await run_bao535(interaction, loai.value, so_bo)
 
 bao645_choices = [
-    app_commands.Choice(name="B5  – Bao 5 so (400.000d) – max 5 bo",    value="b5"),
-    app_commands.Choice(name="B7  – Bao 7 so (70.000d) – max 30 bo",    value="b7"),
-    app_commands.Choice(name="B8  – Bao 8 so (280.000d) – max 7 bo",    value="b8"),
-    app_commands.Choice(name="B9  – Bao 9 so (840.000d) – max 2 bo",    value="b9"),
-    app_commands.Choice(name="B10 – Bao 10 so (2.100.000d) – max 1 bo", value="b10"),
+    app_commands.Choice(name="B5  – Bao 5 số (400.000d) – max 5 bộ",    value="b5"),
+    app_commands.Choice(name="B7  – Bao 7 số (70.000d) – max 30 bộ",    value="b7"),
+    app_commands.Choice(name="B8  – Bao 8 số (280.000d) – max 7 bộ",    value="b8"),
+    app_commands.Choice(name="B9  – Bao 9 số (840.000d) – max 2 bộ",    value="b9"),
+    app_commands.Choice(name="B10 – Bao 10 số (2.100.000d) – max 1 bộ", value="b10"),
 ]
-@tree.command(name="bao645", description="Bao so Mega 6/45 kem SMS")
-@app_commands.describe(loai="Chon loai bao so", so_bo="So bo muon mua")
+@tree.command(name="bao645", description="Bao số Mega 6/45 kèm SMS")
+@app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao645_choices)
 async def cmd_bao645(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 30] = 1):
     await run_bao645655(interaction, "645", loai.value, so_bo)
 
 bao655_choices = [
-    app_commands.Choice(name="B5  – Bao 5 so (500.000d) – max 4 bo",    value="b5"),
-    app_commands.Choice(name="B7  – Bao 7 so (70.000d) – max 30 bo",    value="b7"),
-    app_commands.Choice(name="B8  – Bao 8 so (280.000d) – max 7 bo",    value="b8"),
-    app_commands.Choice(name="B9  – Bao 9 so (840.000d) – max 2 bo",    value="b9"),
-    app_commands.Choice(name="B10 – Bao 10 so (2.100.000d) – max 1 bo", value="b10"),
+    app_commands.Choice(name="B5  – Bao 5 số (500.000d) – max 4 bộ",    value="b5"),
+    app_commands.Choice(name="B7  – Bao 7 số (70.000d) – max 30 bộ",    value="b7"),
+    app_commands.Choice(name="B8  – Bao 8 số (280.000d) – max 7 bộ",    value="b8"),
+    app_commands.Choice(name="B9  – Bao 9 số (840.000d) – max 2 bộ",    value="b9"),
+    app_commands.Choice(name="B10 – Bao 10 số (2.100.000d) – max 1 bộ", value="b10"),
 ]
-@tree.command(name="bao655", description="Bao so Power 6/55 kem SMS")
-@app_commands.describe(loai="Chon loai bao so", so_bo="So bo muon mua")
+@tree.command(name="bao655", description="Bao số Power 6/55 kèm SMS")
+@app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao655_choices)
 async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 30] = 1):
     await run_bao645655(interaction, "655", loai.value, so_bo)
