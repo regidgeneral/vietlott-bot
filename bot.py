@@ -808,8 +808,6 @@ async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choi
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
 
-@client.event
-
 @tree.command(name="luuketqua", description="Nhap tay ket qua xo so vao Google Sheets")
 @app_commands.describe(
     loai="Loai ve",
@@ -863,6 +861,7 @@ async def cmd_luuketqua(
         await interaction.followup.send(f"❌ Loi: {str(e)}")
 
 
+@client.event
 async def on_ready():
     await tree.sync()
     print(f"✅ Bot đã online: {client.user}")
