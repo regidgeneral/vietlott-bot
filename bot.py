@@ -46,12 +46,12 @@ BAO_535 = {
     "bd9": {"label": "BD9 – Bao 9 số đặc biệt", "gia": 90000,  "type": "bd", "n_sp": 9},
     "bd10":{"label": "BD10 – Bao 10 số đặc biệt", "gia": 100000, "type": "bd", "n_sp": 10},
     "bd11":{"label": "BD11 – Bao 11 số đặc biệt", "gia": 110000, "type": "bd", "n_sp": 11},
-    "bd12":{"label": "BD12 – Bao 12 số đặc biệt", "giá": 120000, "type": "bd", "n_sp": 12},
+    "bd12":{"label": "BD12 – Bao 12 số đặc biệt", "gia": 120000, "type": "bd", "n_sp": 12},
 }
 
 BAO_645_655 = {
     "b5":  {"label": "B5  – Bao 5 số",  "gia_645": 400000,  "gia_655": 500000,  "n": 5},
-    "b7":  {"label": "B7  – Bao 7 so",  "gia_645": 70000,   "gia_655": 70000,   "n": 7},
+    "b7":  {"label": "B7  – Bao 7 số",  "gia_645": 70000,   "gia_655": 70000,   "n": 7},
     "b8":  {"label": "B8  – Bao 8 số",  "gia_645": 280000,  "gia_655": 280000,  "n": 8},
     "b9":  {"label": "B9  – Bao 9 số",  "gia_645": 840000,  "gia_655": 840000,  "n": 9},
     "b10": {"label": "B10 – Bao 10 số", "gia_645": 2100000, "gia_655": 2100000, "n": 10},
@@ -292,11 +292,27 @@ def max_bo(gia, type_key):
 def make_sms_link(sms_text):
     return f"https://vietlott-sms.netlify.app/?body={urllib.parse.quote(sms_text)}"
 
+def shorten_url(url):
+    """Rút gọn URL nếu quá 512 ký tự — giới hạn Discord button"""
+    if len(url) <= 512:
+        return url
+    try:
+        r = requests.get(
+            f"https://tinyurl.com/api-create.php?url={urllib.parse.quote(url, safe='')}",
+            timeout=5
+        )
+        if r.status_code == 200 and r.text.strip().startswith("http"):
+            return r.text.strip()
+    except Exception as e:
+        print(f"⚠️ TinyURL lỗi: {e}")
+    return url[:512]
+
 def make_button(sms_text):
+    url = shorten_url(make_sms_link(sms_text))
     view = discord.ui.View()
     view.add_item(discord.ui.Button(
         label="📱 Mở SMS → gửi 9969",
-        url=make_sms_link(sms_text),
+        url=url,
         style=discord.ButtonStyle.link
     ))
     return view
@@ -493,7 +509,7 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
             embed.add_field(name=f"Bộ {i+1}", value=" ".join(f"`{n:02d}`" for n in nums), inline=False)
 
         tong = so_bo * gia
-        embed.add_field(name="Tông tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
+        embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
