@@ -439,20 +439,7 @@ async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_com
 # ==========================================
 # KHỞI ĐỘNG
 # ==========================================
-@client.event
-async def on_ready():
-    await tree.sync()
-    print(f"✅ Bot đã online: {client.user}")
-    print("Commands: /535 /645 /655 /stat535 /stat645 /stat655 /bao535 /bao645 /bao655")
-    print("Commands: /ketqua /thongke /sosanhso")
-    # Khởi động scheduler chạy nền
-    asyncio.create_task(scheduler())
-    print("⏰ Scheduler đã khởi động")
 
-client.run(TOKEN)
-
-
-# ==========================================
 # GOOGLE SHEETS & KẾT QUẢ XỔ SỐ
 # ==========================================
 import json
@@ -769,3 +756,15 @@ async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choi
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
+
+@client.event
+async def on_ready():
+    await tree.sync()
+    print(f"✅ Bot đã online: {client.user}")
+    print("Commands: /535 /645 /655 /stat535 /stat645 /stat655 /bao535 /bao645 /bao655")
+    print("Commands: /ketqua /thongke /sosanhso")
+    # Khởi động scheduler chạy nền
+    asyncio.create_task(scheduler())
+    print("⏰ Scheduler đã khởi động")
+
+client.run(TOKEN)
