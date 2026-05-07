@@ -343,6 +343,13 @@ def weighted_pick(pool, weights, count, exclude=None):
 
 
 
+def add_fields_chunked(embed, lines, chunk_size=10):
+    """Chia danh sách bộ số thành nhiều field, mỗi field tối đa chunk_size bộ"""
+    for i in range(0, len(lines), chunk_size):
+        chunk = lines[i:i+chunk_size]
+        name = 'Bộ số' if i == 0 else f'Bộ số (tiếp)'
+        embed.add_field(name=name, value='\n'.join(chunk), inline=False)
+
 def fmt_gia(gia):
     return f"{gia:,}d".replace(",", ".")
 
@@ -486,7 +493,7 @@ async def run_pick(interaction, type_key, so_luong):
             lines.append(f"**Bộ {i+1}:** {disp}{extra}")
 
         tong = so_luong * 10000
-        embed.add_field(name="Bộ số", value="\n".join(lines), inline=False)
+        add_fields_chunked(embed, lines)
         embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
@@ -538,7 +545,7 @@ async def run_bao535(interaction, bao_key, so_bo):
                 lines.append(f"**Bộ {i+1}:** {disp} | ĐB: {sp_disp}")
 
         tong = so_bo * info["gia"]
-        embed.add_field(name="Bộ số", value="\n".join(lines), inline=False)
+        add_fields_chunked(embed, lines)
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
@@ -574,7 +581,7 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
             lines.append(f"**Bộ {i+1}:** {disp}")
 
         tong = so_bo * gia
-        embed.add_field(name="Bộ số", value="\n".join(lines), inline=False)
+        add_fields_chunked(embed, lines)
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
