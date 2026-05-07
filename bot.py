@@ -408,7 +408,7 @@ async def run_pick(interaction, type_key, so_luong):
             all_sets.append((nums, sp))
             disp = " ".join(f"`{n:02d}`" for n in nums)
             extra = f"  |  DB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
-            embed.add_field(name=f"Bo {i+1}", value=disp + extra, inline=False)
+            embed.add_field(name=f"Bộ {i+1}", value=disp + extra, inline=False)
 
         tong = so_luong * 10000
         embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
