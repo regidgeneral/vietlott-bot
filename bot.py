@@ -293,7 +293,6 @@ def make_sms_link(sms_text):
     return f"https://vietlott-sms.netlify.app/?body={urllib.parse.quote(sms_text)}"
 
 def shorten_url(url):
-    """Rút gọn URL nếu quá 512 ký tự — giới hạn Discord button"""
     if len(url) <= 512:
         return url
     try:
@@ -411,9 +410,11 @@ async def run_pick(interaction, type_key, so_luong):
         draws = len(numbers) // cfg["k"]
 
         embed = discord.Embed(title=f"🎰 {cfg['label']} — {so_luong} bộ số", color=0x1D9E75)
+        tong = so_luong * 10000
         embed.add_field(name="Phân tích từ", value=f"{draws} kỳ lịch sử", inline=True)
+        embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=True)
 
-        all_sets, seen = [], set()
+        all_sets, seen, lines = [], set(), []
         for i in range(so_luong):
             nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since)
             seen.add(tuple(nums))
@@ -423,11 +424,9 @@ async def run_pick(interaction, type_key, so_luong):
                 sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
             all_sets.append((nums, sp))
             disp = " ".join(f"`{n:02d}`" for n in nums)
-            extra = f"  |  DB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
-            embed.add_field(name=f"Bộ {i+1}", value=disp + extra, inline=False)
-
-        tong = so_luong * 10000
-        embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
+            extra = f" | ĐB:`{sp:02d}`" if sp and type_key == "535" else (f" | Power:`{sp:02d}`" if sp else "")
+            lines.append(f"**Bộ {i+1}:** {disp}{extra}")
+        embed.add_field(name="Bộ số", value=builtin_function_or_method, inline=False)
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
@@ -453,7 +452,7 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed = discord.Embed(title=f"🎰 {info['label']} — Lotto 5/35", color=0x9B59B6)
         embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
 
-        seen, s_parts = set(), []
+        seen, s_parts, lines = set(), [], []
         for i in range(so_bo):
             if info["type"] == "bc":
                 main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since)
@@ -464,7 +463,8 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums[:-1])
                 last = f"{main_nums[-1]:02d}-{special:02d}"
                 s_parts.append(f"S {main_str} {last}")
-                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: `{special:02d}`", inline=False)
+                disp = " ".join(f"`{n:02d}`" for n in main_nums)
+                lines.append(f"**Bộ {i+1}:** {disp} | ĐB:`{special:02d}`")
             else:
                 main_nums = generate_nums(freq, 35, 5, seen, days_since)
                 seen.add(tuple(main_nums))
@@ -472,9 +472,12 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums)
                 sp_str = f"{specials_picked[0]:02d}" + (" " + " ".join(f"{n:02d}" for n in specials_picked[1:]) if len(specials_picked) > 1 else "")
                 s_parts.append(f"S {main_str}-{sp_str}")
-                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: {' '.join(f'`{n:02d}`' for n in specials_picked)}", inline=False)
+                disp = " ".join(f"`{n:02d}`" for n in main_nums)
+                sp_disp = " ".join(f"`{n:02d}`" for n in specials_picked)
+                lines.append(f"**Bộ {i+1}:** {disp} | ĐB: {sp_disp}")
 
         tong = so_bo * info["gia"]
+        embed.add_field(name="Bộ số", value=builtin_function_or_method, inline=False)
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
@@ -556,8 +559,8 @@ async def post_result(type_key):
     freq = compute_freq(all_nums, cfg["n"])
     sp_freq = compute_freq(all_sp, cfg.get("special_n", 55)) if all_sp else None
 
-    embed2 = discord.Embed(title=f"🎯 Gợi ý 5 bộ số kì tiếp — {cfg['label']}", color=0x1D9E75)
-    all_sets, seen = [], set()
+    embed2 = discord.Embed(title=f"🎯 Gợi ý 5 bộ số kỳ tiếp — {cfg['label']}", color=0x1D9E75)
+    all_sets, seen, lines2 = [], set(), []
     for i in range(5):
         nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since)
         seen.add(tuple(nums))
@@ -567,8 +570,9 @@ async def post_result(type_key):
             sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
         all_sets.append((nums, sp))
         disp = " ".join(f"`{n:02d}`" for n in nums)
-        extra = f"  |  ĐB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
-        embed2.add_field(name=f"Bo {i+1}", value=disp + extra, inline=False)
+        extra = f" | ĐB:`{sp:02d}`" if sp and type_key == "535" else (f" | Power:`{sp:02d}`" if sp else "")
+        lines2.append(f"**Bộ {i+1}:** {disp}{extra}")
+    embed2.add_field(name="Bộ số gợi ý", value=builtin_function_or_method, inline=False)
 
     sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
     embed2.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
