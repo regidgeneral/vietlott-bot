@@ -512,7 +512,10 @@ def fetch_latest_result(type_key):
                 continue
             nums = [int(n) for n in re.findall(r"\d+", cells[1].get_text()) if 1 <= int(n) <= cfg["n"]]
             if len(nums) == cfg["k"]:
-                ky = cells[0].get_text(strip=True) if cells else "?"
+                # Chỉ lấy phần số của kỳ, tránh encoding lỗi
+                ky_raw = cells[0].get_text(strip=True) if cells else "?"
+                ky_nums = re.findall(r"[\d/]+", ky_raw)
+                ky = ky_nums[0] if ky_nums else ky_raw
                 special = None
                 if cfg.get("has_special") and len(cells) >= 3:
                     sp = re.findall(r"\d+", cells[2].get_text())
@@ -806,6 +809,60 @@ async def cmd_sosanhso(interaction: discord.Interaction, loai: app_commands.Choi
 
 
 @client.event
+
+@tree.command(name="luuketqua", description="Nhap tay ket qua xo so vao Google Sheets")
+@app_commands.describe(
+    loai="Loai ve",
+    ngay="Ngay xo (dd/mm/yyyy, vd: 07/05/2026)",
+    ky="So ky (vd: 00623)",
+    so1="So thu 1", so2="So thu 2", so2="So thu 2", so3="So thu 3",
+    so4="So thu 4", so5="So thu 5", so6="So thu 6 (chi 645/655)",
+    dacbiet="So dac biet / Power (chi 535/655)"
+)
+@app_commands.choices(loai=[
+    app_commands.Choice(name="Lotto 5/35", value="535"),
+    app_commands.Choice(name="Mega 6/45", value="645"),
+    app_commands.Choice(name="Power 6/55", value="655"),
+])
+async def cmd_luuketqua(
+    interaction: discord.Interaction,
+    loai: app_commands.Choice[str],
+    ngay: str, ky: str,
+    so1: int, so2: int, so3: int, so4: int, so5: int,
+    so6: int = 0, dacbiet: int = 0
+):
+    cfg = CONFIGS[loai.value]
+    await interaction.response.defer(thinking=True)
+    try:
+        if loai.value == "535":
+            numbers = [so1, so2, so3, so4, so5]
+            special = dacbiet if dacbiet else None
+        elif loai.value == "645":
+            numbers = [so1, so2, so3, so4, so5, so6]
+            special = None
+        else:  # 655
+            numbers = [so1, so2, so3, so4, so5, so6]
+            special = dacbiet if dacbiet else None
+
+        # Validate
+        if len(numbers) != cfg["k"] or any(n == 0 for n in numbers):
+            await interaction.followup.send(f"⚠️ {cfg['label']} can du {cfg['k']} so chinh!")
+            return
+
+        save_result(loai.value, ngay, ky, numbers, special)
+
+        embed = discord.Embed(title=f"✅ Da luu ket qua — {cfg['label']}", color=0x2ECC71)
+        embed.add_field(name="Ngay", value=ngay, inline=True)
+        embed.add_field(name="Ky", value=ky, inline=True)
+        embed.add_field(name="Ket qua", value=" ".join(f"`{n:02d}`" for n in numbers), inline=False)
+        if special:
+            embed.add_field(name="Dac biet / Power", value=f"`{special:02d}`", inline=True)
+        embed.set_footer(text="Da luu vao Google Sheets")
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Loi: {str(e)}")
+
+
 async def on_ready():
     await tree.sync()
     print(f"✅ Bot đã online: {client.user}")
