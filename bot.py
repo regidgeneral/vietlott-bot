@@ -44,17 +44,17 @@ BAO_535 = {
     "bd7": {"label": "BD7 – Bao 7 số đặc biệt", "giá": 70000,  "type": "bd", "n_sp": 7},
     "bd8": {"label": "BD8 – Bao 8 số đặc biệt", "giá": 80000,  "type": "bd", "n_sp": 8},
     "bd9": {"label": "BD9 – Bao 9 số đặc biệt", "giá": 90000,  "type": "bd", "n_sp": 9},
-    "bd10":{"label": "BD10 – Bao 10 số đặc biệt","giá": 100000, "type": "bd", "n_sp": 10},
-    "bd11":{"label": "BD11 – Bao 11 số đặc biệt","giá": 110000, "type": "bd", "n_sp": 11},
-    "bd12":{"label": "BD12 – Bao 12 số đặc biệt","giá": 120000, "type": "bd", "n_sp": 12},
+    "bd10":{"label": "BD10 – Bao 10 số đặc biệt", "giá": 100000, "type": "bd", "n_sp": 10},
+    "bd11":{"label": "BD11 – Bao 11 số đặc biệt", "giá": 110000, "type": "bd", "n_sp": 11},
+    "bd12":{"label": "BD12 – Bao 12 số đặc biệt", "giá": 120000, "type": "bd", "n_sp": 12},
 }
 
 BAO_645_655 = {
-    "b5":  {"label": "B5  – Bao 5 so",  "gia_645": 400000,  "gia_655": 500000,  "n": 5},
+    "b5":  {"label": "B5  – Bao 5 số",  "gia_645": 400000,  "gia_655": 500000,  "n": 5},
     "b7":  {"label": "B7  – Bao 7 so",  "gia_645": 70000,   "gia_655": 70000,   "n": 7},
-    "b8":  {"label": "B8  – Bao 8 so",  "gia_645": 280000,  "gia_655": 280000,  "n": 8},
-    "b9":  {"label": "B9  – Bao 9 so",  "gia_645": 840000,  "gia_655": 840000,  "n": 9},
-    "b10": {"label": "B10 – Bao 10 so", "gia_645": 2100000, "gia_655": 2100000, "n": 10},
+    "b8":  {"label": "B8  – Bao 8 số",  "gia_645": 280000,  "gia_655": 280000,  "n": 8},
+    "b9":  {"label": "B9  – Bao 9 số",  "gia_645": 840000,  "gia_655": 840000,  "n": 9},
+    "b10": {"label": "B10 – Bao 10 số", "gia_645": 2100000, "gia_655": 2100000, "n": 10},
 }
 
 LICH_XO = {
@@ -350,14 +350,14 @@ def save_result(type_key, ngay, ky, numbers, special=None):
         ws = wb.worksheet(type_key)
         existing = ws.col_values(2)
         if str(ky).strip() in [str(k).strip() for k in existing[1:]]:
-            print(f"⚠️ Ky {ky} da ton tai, bo qua!")
+            print(f"⚠️ Kỳ {ky} đã tồn tại, bỏ qua!")
             return False
         row = [ngay, ky] + [str(n) for n in numbers]
         if special: row.append(str(special))
         ws.append_row(row)
         return True
     except Exception as e:
-        print(f"❌ Loi luu Sheets: {e}")
+        print(f"❌ Error save Sheets: {e}")
         return False
 
 def fetch_latest_result(type_key):
@@ -376,7 +376,7 @@ def fetch_latest_result(type_key):
         nums, special = parse_jsonl_line(lines[-1], cfg)
         return f"{ky} ({d})", nums, special
     except Exception as e:
-        print(f"❌ Loi fetch latest {type_key}: {e}")
+        print(f"❌ Error fetch latest {type_key}: {e}")
     return None, None, None
 
 # ==========================================
@@ -388,7 +388,7 @@ async def run_pick(interaction, type_key, so_luong):
     try:
         numbers, specials, days_since = get_combined_data(type_key)
         if len(numbers) < cfg["k"] * 5:
-            await interaction.followup.send("⚠️ Khong lay duoc du lieu!")
+            await interaction.followup.send("⚠️ Không lấy được dữ liệu!")
             return
         freq = compute_freq(numbers, cfg["n"])
         sp_freq = compute_freq(specials, cfg.get("special_n", 55)) if specials else None
