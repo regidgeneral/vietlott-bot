@@ -472,7 +472,7 @@ async def run_pick(interaction, type_key, so_luong):
         embed = discord.Embed(title=f"🎰 {cfg['label']} — {so_luong} bộ số", color=0x1D9E75)
         embed.add_field(name="Phân tích từ", value=f"{draws} kỳ lịch sử", inline=True)
 
-        all_sets, seen = [], set()
+        all_sets, seen, lines = [], set(), []
         for i in range(so_luong):
             nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq)
             seen.add(tuple(nums))
@@ -482,10 +482,11 @@ async def run_pick(interaction, type_key, so_luong):
                 sp = weighted_pick([n for n, _ in sp_sorted], [c for _, c in sp_sorted], 1)[0]
             all_sets.append((nums, sp))
             disp = " ".join(f"`{n:02d}`" for n in nums)
-            extra = f"  |  DB: `{sp:02d}`" if sp and type_key == "535" else (f"  |  Power: `{sp:02d}`" if sp else "")
-            embed.add_field(name=f"Bộ {i+1}", value=disp + extra, inline=False)
+            extra = f" | ĐB:`{sp:02d}`" if sp and type_key == "535" else (f" | Power:`{sp:02d}`" if sp else "")
+            lines.append(f"**Bộ {i+1}:** {disp}{extra}")
 
         tong = so_luong * 10000
+        embed.add_field(name="Bộ số", value="\n".join(lines), inline=False)
         embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
@@ -512,7 +513,7 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed = discord.Embed(title=f"🎰 {info['label']} — Lotto 5/35", color=0x9B59B6)
         embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
 
-        seen, s_parts = set(), []
+        seen, s_parts, lines = set(), [], []
         for i in range(so_bo):
             if info["type"] == "bc":
                 main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since, pair_freq)
@@ -523,7 +524,8 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums[:-1])
                 last = f"{main_nums[-1]:02d}-{special:02d}"
                 s_parts.append(f"S {main_str} {last}")
-                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: `{special:02d}`", inline=False)
+                disp = " ".join(f"`{n:02d}`" for n in main_nums)
+                lines.append(f"**Bộ {i+1}:** {disp} | ĐB:`{special:02d}`")
             else:
                 main_nums = generate_nums(freq, 35, 5, seen, days_since, pair_freq)
                 seen.add(tuple(main_nums))
@@ -531,9 +533,12 @@ async def run_bao535(interaction, bao_key, so_bo):
                 main_str = " ".join(f"{n:02d}" for n in main_nums)
                 sp_str = f"{specials_picked[0]:02d}" + (" " + " ".join(f"{n:02d}" for n in specials_picked[1:]) if len(specials_picked) > 1 else "")
                 s_parts.append(f"S {main_str}-{sp_str}")
-                embed.add_field(name=f"Bộ {i+1}", value=f"{' '.join(f'`{n:02d}`' for n in main_nums)}  |  ĐB: {' '.join(f'`{n:02d}`' for n in specials_picked)}", inline=False)
+                disp = " ".join(f"`{n:02d}`" for n in main_nums)
+                sp_disp = " ".join(f"`{n:02d}`" for n in specials_picked)
+                lines.append(f"**Bộ {i+1}:** {disp} | ĐB: {sp_disp}")
 
         tong = so_bo * info["gia"]
+        embed.add_field(name="Bộ số", value="\n".join(lines), inline=False)
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
@@ -560,15 +565,17 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         embed = discord.Embed(title=f"🎰 {info['label']} — {cfg['label']}", color=0x9B59B6)
         embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY[type_key])} / {fmt_gia(gia)})", inline=False)
 
-        seen, s_parts = set(), []
+        seen, s_parts, lines = set(), [], []
         for i in range(so_bo):
             nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since, pair_freq)
             seen.add(tuple(nums))
             s_parts.append("S " + " ".join(f"{n:02d}" for n in nums))
-            embed.add_field(name=f"Bộ {i+1}", value=" ".join(f"`{n:02d}`" for n in nums), inline=False)
+            disp = " ".join(f"`{n:02d}`" for n in nums)
+            lines.append(f"**Bộ {i+1}:** {disp}")
 
         tong = so_bo * gia
-        embed.add_field(name="Tông tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
+        embed.add_field(name="Bộ số", value="\n".join(lines), inline=False)
+        embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.utcnow()
