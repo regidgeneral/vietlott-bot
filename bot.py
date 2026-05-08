@@ -63,10 +63,7 @@ LICH_XO = {
     "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],
 }
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
-intents.guilds = True
+intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 _cache = {}
@@ -597,8 +594,11 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
 # TỰ ĐỘNG BÁO KẾT QUẢ SAU GIỜ XỔ
 # ==========================================
 async def post_result(type_key):
-    channel = client.get_channel(DISCORD_CHANNEL_ID)
-    if not channel: return
+    try:
+        channel = client.get_channel(DISCORD_CHANNEL_ID) or await client.fetch_channel(DISCORD_CHANNEL_ID)
+    except Exception as e:
+        print(f"❌ Khong tim thay kenh: {e}")
+        return
     cfg = CONFIGS[type_key]
     ngay = datetime.now(VN_TZ).strftime("%d/%m/%Y")
     await channel.send(f"⏳ Dang lay ket qua **{cfg['label']}**...")
@@ -733,16 +733,6 @@ async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_com
 # ==========================================
 # KHỞI ĐỘNG
 # ==========================================
-@tree.command(name="test", description="Test bot gui tin vao kenh")
-async def cmd_test(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
-    channel = client.get_channel(DISCORD_CHANNEL_ID)
-    if channel:
-        await channel.send("✅ Bot test thanh cong!")
-        await interaction.followup.send(f"✅ Da gui tin vao kenh <#{DISCORD_CHANNEL_ID}>")
-    else:
-        await interaction.followup.send(f"❌ Khong tim thay kenh {DISCORD_CHANNEL_ID}")
-
 @client.event
 async def on_ready():
     await tree.sync()
