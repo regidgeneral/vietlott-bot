@@ -733,6 +733,16 @@ async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_com
 # ==========================================
 # KHỞI ĐỘNG
 # ==========================================
+@tree.command(name="test", description="Test bot gui tin vao kenh")
+async def cmd_test(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    try:
+        channel = client.get_channel(DISCORD_CHANNEL_ID) or await client.fetch_channel(DISCORD_CHANNEL_ID)
+        await channel.send("✅ Bot test thanh cong! Scheduler se tu dong bao ket qua sau gio xo.")
+        await interaction.followup.send(f"✅ Da gui tin vao kenh <#{DISCORD_CHANNEL_ID}>")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Loi: {e}")
+
 @client.event
 async def on_ready():
     await tree.sync()
