@@ -64,6 +64,9 @@ LICH_XO = {
 }
 
 intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.guilds = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 _cache = {}
@@ -735,10 +738,10 @@ async def cmd_test(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
     channel = client.get_channel(DISCORD_CHANNEL_ID)
     if channel:
-        await channel.send("✅ Bot test thanh cong! Kenh va quyen han deu ok.")
+        await channel.send("✅ Bot test thanh cong!")
         await interaction.followup.send(f"✅ Da gui tin vao kenh <#{DISCORD_CHANNEL_ID}>")
     else:
-        await interaction.followup.send(f"❌ Khong tim thay kenh ID: {DISCORD_CHANNEL_ID}. Kiem tra lai DISCORD_CHANNEL_ID trong Railway.")
+        await interaction.followup.send(f"❌ Khong tim thay kenh {DISCORD_CHANNEL_ID}")
 
 @client.event
 async def on_ready():
