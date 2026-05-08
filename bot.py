@@ -58,7 +58,7 @@ BAO_645_655 = {
 }
 
 LICH_XO = {
-    "535": [(0, 21, 5), (2, 21, 5), (4, 21, 5)],
+    "535": [(0, 13, 5), (0, 21, 5), (2, 13, 5), (2, 21, 5), (4, 13, 5), (4, 21, 5)],
     "645": [(2, 18, 5), (4, 18, 5), (6, 18, 5)],
     "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],
 }
@@ -730,6 +730,16 @@ async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_com
 # ==========================================
 # KHỞI ĐỘNG
 # ==========================================
+@tree.command(name="test", description="Test bot gui tin vao kenh")
+async def cmd_test(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    channel = client.get_channel(DISCORD_CHANNEL_ID)
+    if channel:
+        await channel.send("✅ Bot test thanh cong! Kenh va quyen han deu ok.")
+        await interaction.followup.send(f"✅ Da gui tin vao kenh <#{DISCORD_CHANNEL_ID}>")
+    else:
+        await interaction.followup.send(f"❌ Khong tim thay kenh ID: {DISCORD_CHANNEL_ID}. Kiem tra lai DISCORD_CHANNEL_ID trong Railway.")
+
 @client.event
 async def on_ready():
     await tree.sync()
