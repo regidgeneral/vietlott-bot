@@ -21,70 +21,47 @@ HEADERS = {
     "Referer": "https://www.minhchinh.com/",
 }
 
-def parse_lotto535(soup, today_str):
-    """Parse Lotto 5/35 — có số đặc biệt (số thứ 6), xổ 2 lần/ngày"""
+def parse_results(soup, today_str, type_key):
+    """
+    Format thực tế từ minhchinh.com (mỗi token trên 1 dòng riêng):
+    ...kỳ\n#662\nngày\n25/05/2026\n- Lúc 21:00\n01\n06\n09\n15\n23\n08\n...
+    """
     results = []
-    text = soup.get_text("\n", strip=True)
+    # Dùng " " thay vì "\n" để join thành 1 chuỗi dễ parse hơn
+    text = soup.get_text(" ", strip=True)
 
-    # DEBUG: in 200 ký tự xung quanh từ khóa "kỳ" để xem format thực tế
-    idx = text.lower().find("kỳ")
-    if idx >= 0:
-        print(f"[DEBUG] text around 'kỳ': {repr(text[max(0,idx-20):idx+200])}")
-
+    # Pattern: kỳ #NNN ngày DD/MM/YYYY - Lúc HH:MM rồi các số
+    # Mỗi phần cách nhau bởi khoảng trắng (sau khi join)
     pattern = re.compile(
-        r'kỳ\s+#?(\d+)\s+ngày\s+(' + re.escape(today_str) + r')\s*-\s*Lúc\s+(\d+:\d+)\s*\n([\d\s]+)',
+        r'kỳ\s+#(\d+)\s+ngày\s+(' + re.escape(today_str) + r')\s*-\s*Lúc\s+(\d+:\d+)\s+((?:\d+\s+){4,8})',
         re.IGNORECASE
     )
+
+    num_count = {"535": 6, "645": 6, "655": 7}[type_key]
+
     for m in pattern.finditer(text):
         ky = m.group(1).zfill(5)
-        date = m.group(2)
-        time = m.group(3)
+        date_raw = m.group(2)
+        time_raw = m.group(3)
         nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
-        if len(nums_raw) >= 6:
-            nums = nums_raw[:5]
-            special = nums_raw[5]
-            # Convert date DD/MM/YYYY → YYYY-MM-DD
-            d, mo, y = date.split("/")
+
+        if len(nums_raw) >= num_count:
+            d, mo, y = date_raw.split("/")
             iso_date = f"{y}-{mo}-{d}"
+            result = nums_raw[:num_count]
             results.append({
                 "id": ky,
                 "date": iso_date,
-                "time": time,
-                "result": nums + [special]
+                "time": time_raw,
+                "result": result
             })
-    return results
+            print(f"     ✅ Kỳ {ky} {time_raw}: {result}")
 
-def parse_645_655(soup, today_str, type_key):
-    """Parse Mega 6/45 và Power 6/55"""
-    results = []
-    text = soup.get_text("\n", strip=True)
-    
-    # 655 có 7 số (6 chính + 1 power), 645 có 6 số
-    num_count = 7 if type_key == "655" else 6
-    
-    pattern = re.compile(
-        r'kỳ\s+#?(\d+)\s+ngày\s+(' + re.escape(today_str) + r')\s*-\s*Lúc\s+(\d+:\d+)\s*\n([\d\s]+)',
-        re.IGNORECASE
-    )
-    for m in pattern.finditer(text):
-        ky = m.group(1).zfill(5)
-        date = m.group(2)
-        time = m.group(3)
-        nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
-        if len(nums_raw) >= num_count:
-            nums = nums_raw[:6]
-            special = nums_raw[6] if type_key == "655" and len(nums_raw) >= 7 else None
-            d, mo, y = date.split("/")
-            iso_date = f"{y}-{mo}-{d}"
-            entry = {"id": ky, "date": iso_date, "time": time, "result": nums}
-            if special is not None:
-                entry["result"] = nums + [special]
-            results.append(entry)
     return results
 
 def fetch_today():
     now = datetime.now(VN_TZ)
-    today_str = now.strftime("%d/%m/%Y")  # DD/MM/YYYY để match với site
+    today_str = now.strftime("%d/%m/%Y")
     print(f"Fetching results for {today_str}...")
 
     output = {"date": now.strftime("%Y-%m-%d"), "fetched_at": now.isoformat(), "results": {}}
@@ -99,22 +76,14 @@ def fetch_today():
                 continue
 
             soup = BeautifulSoup(r.text, "html.parser")
-
-            if type_key == "535":
-                results = parse_lotto535(soup, today_str)
-            else:
-                results = parse_645_655(soup, today_str, type_key)
-
+            results = parse_results(soup, today_str, type_key)
             output["results"][type_key] = results
             print(f"  ✅ {type_key}: {len(results)} kỳ hôm nay")
-            for r_item in results:
-                print(f"     Kỳ {r_item['id']} {r_item['time']}: {r_item['result']}")
 
         except Exception as e:
             print(f"  ❌ {type_key}: {e}")
             output["results"][type_key] = []
 
-    # Ghi ra data/today.json
     os.makedirs("data", exist_ok=True)
     with open("data/today.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
