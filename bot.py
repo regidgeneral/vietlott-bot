@@ -7,7 +7,7 @@ import re
 import os
 import urllib.parse
 from discord import app_commands
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import pytz
 import gspread
 from google.oauth2.service_account import Credentials
@@ -629,7 +629,7 @@ async def run_pick(interaction, type_key, so_luong):
         embed.add_field(name="Tổng tiền", value=fmt_gia(tong), inline=False)
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
@@ -682,7 +682,7 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
@@ -720,7 +720,7 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY[type_key])} hạn mức ngày", inline=False)
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
-        embed.timestamp = datetime.utcnow()
+        embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
@@ -758,7 +758,7 @@ async def post_result(type_key):
     embed.add_field(name="Kết quả", value=" ".join(f"`{n:02d}`" for n in numbers), inline=False)
     if special:
         embed.add_field(name="Đặc biệt" if type_key == "535" else "Power", value=f"`{special:02d}`", inline=True)
-    embed.timestamp = datetime.utcnow()
+    embed.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed)
 
     # Gợi ý 5 bộ số kỳ tiếp
@@ -785,7 +785,7 @@ async def post_result(type_key):
 
     sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
     embed2.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
-    embed2.timestamp = datetime.utcnow()
+    embed2.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed2, view=make_button(sms))
 
 async def scheduler():
