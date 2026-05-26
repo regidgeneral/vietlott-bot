@@ -22,48 +22,39 @@ HEADERS = {
 }
 
 def parse_results(soup, today_str, type_key):
-    """
-    Format thực tế từ minhchinh.com (mỗi token trên 1 dòng riêng):
-    ...kỳ\n#662\nngày\n25/05/2026\n- Lúc 21:00\n01\n06\n09\n15\n23\n08\n...
-    """
-    results = []
-    # Dùng " " thay vì "\n" để join thành 1 chuỗi dễ parse hơn
     text = soup.get_text(" ", strip=True)
 
-    # Pattern: kỳ #NNN ngày DD/MM/YYYY - Lúc HH:MM rồi các số
-    # Mỗi phần cách nhau bởi khoảng trắng (sau khi join)
+    # DEBUG: in ra 400 ký tự quanh "kỳ" để xem format
+    idx = text.lower().find("kỳ")
+    if idx >= 0:
+        print(f"[DEBUG] {repr(text[max(0,idx-10):idx+400])}")
+    else:
+        print("[DEBUG] Không tìm thấy 'kỳ' trong text!")
+        print(f"[DEBUG] 500 ký tự đầu: {repr(text[:500])}")
+
+    results = []
     pattern = re.compile(
         r'kỳ\s+#(\d+)\s+ngày\s+(' + re.escape(today_str) + r')\s*-\s*Lúc\s+(\d+:\d+)\s+((?:\d+\s+){4,8})',
         re.IGNORECASE
     )
-
     num_count = {"535": 6, "645": 6, "655": 7}[type_key]
-
     for m in pattern.finditer(text):
         ky = m.group(1).zfill(5)
         date_raw = m.group(2)
         time_raw = m.group(3)
         nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
-
         if len(nums_raw) >= num_count:
             d, mo, y = date_raw.split("/")
             iso_date = f"{y}-{mo}-{d}"
             result = nums_raw[:num_count]
-            results.append({
-                "id": ky,
-                "date": iso_date,
-                "time": time_raw,
-                "result": result
-            })
+            results.append({"id": ky, "date": iso_date, "time": time_raw, "result": result})
             print(f"     ✅ Kỳ {ky} {time_raw}: {result}")
-
     return results
 
 def fetch_today():
     now = datetime.now(VN_TZ)
     today_str = now.strftime("%d/%m/%Y")
     print(f"Fetching results for {today_str}...")
-
     output = {"date": now.strftime("%Y-%m-%d"), "fetched_at": now.isoformat(), "results": {}}
 
     for type_key, url in URLS.items():
@@ -74,12 +65,10 @@ def fetch_today():
                 print(f"  ❌ {type_key}: HTTP {r.status_code}")
                 output["results"][type_key] = []
                 continue
-
             soup = BeautifulSoup(r.text, "html.parser")
             results = parse_results(soup, today_str, type_key)
             output["results"][type_key] = results
             print(f"  ✅ {type_key}: {len(results)} kỳ hôm nay")
-
         except Exception as e:
             print(f"  ❌ {type_key}: {e}")
             output["results"][type_key] = []
@@ -87,7 +76,6 @@ def fetch_today():
     os.makedirs("data", exist_ok=True)
     with open("data/today.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-
     print(f"\nSaved to data/today.json")
     return output
 
