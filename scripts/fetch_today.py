@@ -24,11 +24,13 @@ HEADERS = {
 def parse_lotto535(soup, today_str):
     """Parse Lotto 5/35 — có số đặc biệt (số thứ 6), xổ 2 lần/ngày"""
     results = []
-    # Mỗi kỳ có block: "Kết quả QSMT kỳ #XXX ngày DD/MM/YYYY - Lúc HH:MM"
-    # Theo sau là dòng số: "N1 N2 N3 N4 N5 N6"
     text = soup.get_text("\n", strip=True)
-    
-    # Tìm tất cả block kết quả trong ngày hôm nay
+
+    # DEBUG: in 200 ký tự xung quanh từ khóa "kỳ" để xem format thực tế
+    idx = text.lower().find("kỳ")
+    if idx >= 0:
+        print(f"[DEBUG] text around 'kỳ': {repr(text[max(0,idx-20):idx+200])}")
+
     pattern = re.compile(
         r'kỳ\s+#?(\d+)\s+ngày\s+(' + re.escape(today_str) + r')\s*-\s*Lúc\s+(\d+:\d+)\s*\n([\d\s]+)',
         re.IGNORECASE
