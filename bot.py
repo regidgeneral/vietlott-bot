@@ -598,10 +598,11 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed = discord.Embed(title=f"🎰 {info['label']} — Lotto 5/35", color=0x9B59B6)
         embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
 
+        last_draw = list(numbers[-5:]) if len(numbers) >= 5 else None
         seen, s_parts, lines = set(), [], []
         for i in range(so_bo):
             if info["type"] == "bc":
-                main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since, pair_freq)
+                main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since, pair_freq, last_draw)
                 seen.add(tuple(main_nums))
                 sp_pool = [n for n, _ in sorted_sp]
                 sp_w = [c for _, c in sorted_sp]
@@ -612,7 +613,7 @@ async def run_bao535(interaction, bao_key, so_bo):
                 disp = " ".join(f"`{n:02d}`" for n in main_nums)
                 lines.append(f"**Bộ {i+1}:** {disp} | ĐB:`{special:02d}`")
             else:
-                main_nums = generate_nums(freq, 35, 5, seen, days_since, pair_freq)
+                main_nums = generate_nums(freq, 35, 5, seen, days_since, pair_freq, last_draw)
                 seen.add(tuple(main_nums))
                 specials_picked = [n for n, _ in sorted_sp[:info["n_sp"]]]
                 main_str = " ".join(f"{n:02d}" for n in main_nums)
@@ -650,9 +651,11 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         embed = discord.Embed(title=f"🎰 {info['label']} — {cfg['label']}", color=0x9B59B6)
         embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY[type_key])} / {fmt_gia(gia)})", inline=False)
 
+        k = cfg["k"]
+        last_draw = list(numbers[-k:]) if len(numbers) >= k else None
         seen, s_parts, lines = set(), [], []
         for i in range(so_bo):
-            nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since, pair_freq)
+            nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since, pair_freq, last_draw)
             seen.add(tuple(nums))
             s_parts.append("S " + " ".join(f"{n:02d}" for n in nums))
             disp = " ".join(f"`{n:02d}`" for n in nums)
