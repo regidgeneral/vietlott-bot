@@ -442,8 +442,55 @@ def save_result(type_key, ngay, ky, numbers, special=None):
         print(f"❌ Error save Sheets: {e}")
         return False
 
+TODAY_JSON_URL = "https://raw.githubusercontent.com/regidgeneral/vietlott-bot/main/data/today.json"
+
+def parse_result_list(result_list, cfg):
+    """Parse list số từ today.json thành (nums, special)"""
+    key = cfg["sms_prefix"]
+    try:
+        if key == "535":
+            if len(result_list) < 6: return None, None
+            return result_list[:5], result_list[5]
+        elif key == "645":
+            if len(result_list) < 6: return None, None
+            return result_list[:6], None
+        elif key == "655":
+            if len(result_list) < 7: return None, None
+            return result_list[:6], result_list[6]
+    except Exception:
+        pass
+    return None, None
+
 def fetch_latest_result(type_key):
+    """
+    Ưu tiên đọc data/today.json từ GitHub (realtime hôm nay).
+    Fallback về JSONL của vietvudanh nếu chưa có data hôm nay.
+    """
     cfg = CONFIGS[type_key]
+    today = date.today().isoformat()  # YYYY-MM-DD
+
+    # --- Thử đọc today.json ---
+    try:
+        r = requests.get(TODAY_JSON_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("date") == today:
+                entries = data.get("results", {}).get(type_key, [])
+                if entries:
+                    latest = sorted(entries, key=lambda x: x["id"], reverse=True)[0]
+                    ky = latest["id"].zfill(5)
+                    d_iso = latest["date"]
+                    y, mo, dd = d_iso.split("-")
+                    d_str = f"{dd}/{mo}/{y}"
+                    nums, special = parse_result_list(latest["result"], cfg)
+                    if nums:
+                        print(f"✅ {type_key}: today.json kỳ {ky}")
+                        return f"{ky} ({d_str})", nums, special
+    except Exception as e:
+        print(f"⚠️ today.json fetch error {type_key}: {e}")
+
+    # --- Fallback: JSONL cũ ---
+    print(f"⚠️ {type_key}: fallback to JSONL")
     try:
         r = requests.get(cfg["jsonl_url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         if r.status_code != 200: return None, None, None
