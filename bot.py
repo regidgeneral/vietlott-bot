@@ -266,63 +266,90 @@ def compute_pair_freq(all_numbers, k):
 
     return dict(companions)
 
-def generate_nums(freq, n_total, n_pick, exclude_sets=None, days_since=None, pair_freq=None):
+def generate_nums(freq, n_total, n_pick, exclude_sets=None, days_since=None, pair_freq=None, last_draw=None):
     """
-    Thuật toán kết hợp 3 yếu tố:
-    - 40% hot (tần suất cao)
-    - 30% due (lâu chưa ra)
-    - 30% cold (tần suất thấp)
-    + Sau khi có seed number, ưu tiên chọn số hay đi kèm với nó
+    Thuật toán v2 — kết hợp A+B+C:
+    A. Tỉ lệ: 60% due (lâu chưa ra) + 20% cold (ít ra) + 20% pair (hay đi kèm)
+    B. Bỏ hot — xổ số random nên momentum không có giá trị predict
+    C. Anti-repeat: tránh số vừa ra kỳ trước + cân bằng tổng bộ số
     """
     avg = sum(freq.values()) / n_total
     sorted_f = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-    hot    = [n for n, _ in sorted_f[:15]]
-    hot_w  = [freq[n] for n in hot]
-    cold   = [n for n, _ in sorted_f[-15:]]
+
+    # Cold: 20% số ít ra nhất
+    cold   = [n for n, _ in sorted_f[-20:]]
     cold_w = [max(1, avg * 2 - freq[n]) for n in cold]
 
+    # Due: 60% số lâu chưa ra nhất
     if days_since:
         due_sorted = sorted(days_since.items(), key=lambda x: x[1], reverse=True)
-        due   = [n for n, _ in due_sorted[:15]]
+        due   = [n for n, _ in due_sorted[:20]]
         due_w = [days_since[n] for n in due]
     else:
         due, due_w = cold, cold_w
 
-    n_hot  = max(1, round(n_pick * 0.4))
-    n_due  = max(1, round(n_pick * 0.3))
-    n_cold = n_pick - n_hot - n_due
+    # Anti-repeat: loại số vừa ra kỳ trước khỏi pool
+    recent = set(last_draw) if last_draw else set()
 
-    for attempt in range(20):
+    n_due  = max(1, round(n_pick * 0.6))
+    n_cold = max(1, round(n_pick * 0.2))
+    n_pair = n_pick - n_due - n_cold  # ~20% pair
+
+    # Target tổng: xổ số 5/35 tổng hợp lý khoảng 70-105 (avg ~18*5)
+    mid = n_total / 2
+    target_sum = round(mid * n_pick)
+    sum_lo = round(target_sum * 0.7)
+    sum_hi = round(target_sum * 1.3)
+
+    for attempt in range(30):
         picked = set()
 
-        # Bước 1: Chọn seed number từ hot
-        seed_candidates = weighted_pick(hot, hot_w, 1)
-        if seed_candidates:
-            seed = seed_candidates[0]
-            picked.add(seed)
-
-            # Bước 2: Nếu có pair_freq, ưu tiên số hay đi kèm với seed
-            if pair_freq and seed in pair_freq and len(picked) < n_pick:
-                companions = [n for n, _ in pair_freq[seed][:10] if n not in picked]
-                comp_w = [c for n, c in pair_freq[seed][:10] if n not in picked]
-                if companions:
-                    n_pair = min(round(n_pick * 0.3), len(companions))
-                    pair_picks = weighted_pick(companions, comp_w, n_pair, exclude=picked)
+        # Bước 1: Chọn seed từ due (không lấy số vừa ra)
+        due_filtered   = [n for n in due   if n not in recent]
+        due_w_filtered = [due_w[i] for i, n in enumerate(due) if n not in recent]
+        seed_pool = due_filtered or due
+        seed_w    = due_w_filtered or due_w
+        seeds = weighted_pick(seed_pool, seed_w, 1)
+        if seeds:
+            picked.add(seeds[0])
+            # Bước 2: Pair boost — số hay đi kèm seed
+            if pair_freq and seeds[0] in pair_freq and len(picked) < n_pick:
+                comp_pool = [n for n, _ in pair_freq[seeds[0]][:10] if n not in picked and n not in recent]
+                comp_w_   = [c for n, c in pair_freq[seeds[0]][:10] if n not in picked and n not in recent]
+                if comp_pool:
+                    pair_picks = weighted_pick(comp_pool, comp_w_, min(n_pair, len(comp_pool)), exclude=picked)
                     picked.update(pair_picks)
 
-        # Bước 3: Bổ sung từ due và cold
-        picked.update(weighted_pick(due, due_w, max(1, n_due - len(picked) + 1), exclude=picked))
-        picked.update(weighted_pick(cold, cold_w, max(1, n_cold), exclude=picked))
-        picked.update(weighted_pick(hot, hot_w, n_hot, exclude=picked))
+        # Bước 3: Bổ sung due
+        due_remain   = [n for n in due_filtered if n not in picked]
+        due_w_remain = [due_w[i] for i, n in enumerate(due) if n not in recent and n not in picked]
+        picked.update(weighted_pick(due_remain, due_w_remain or [1]*len(due_remain),
+                                     max(0, n_due - len(picked)), exclude=picked))
 
-        # Điền thêm nếu còn thiếu
+        # Bước 4: Bổ sung cold
+        cold_filtered = [n for n in cold if n not in picked and n not in recent]
+        cold_w_f      = [cold_w[i] for i, n in enumerate(cold) if n not in picked and n not in recent]
+        picked.update(weighted_pick(cold_filtered, cold_w_f or [1]*len(cold_filtered),
+                                     max(0, n_cold), exclude=picked))
+
+        # Bước 5: Fill ngẫu nhiên nếu còn thiếu (tránh recent)
+        all_pool = [n for n in range(1, n_total + 1) if n not in picked and n not in recent]
+        while len(picked) < n_pick and all_pool:
+            n = random.choice(all_pool)
+            picked.add(n)
+            all_pool.remove(n)
         while len(picked) < n_pick:
             picked.add(random.randint(1, n_total))
 
         result = tuple(sorted(list(picked)[:n_pick]))
-        if not exclude_sets or result not in exclude_sets:
-            return list(result)
 
+        # C. Kiểm tra cân bằng tổng
+        s = sum(result)
+        if sum_lo <= s <= sum_hi:
+            if not exclude_sets or result not in exclude_sets:
+                return list(result)
+
+    # Fallback nếu không tìm được bộ cân bằng
     return list(sorted(list(picked)[:n_pick]))
 
 def weighted_pick(pool, weights, count, exclude=None):
@@ -526,9 +553,13 @@ async def run_pick(interaction, type_key, so_luong):
         embed = discord.Embed(title=f"🎰 {cfg['label']} — {so_luong} bộ số", color=0x1D9E75)
         embed.add_field(name="Phân tích từ", value=f"{draws} kỳ lịch sử", inline=True)
 
+        # Lấy kỳ mới nhất để anti-repeat
+        k = cfg["k"]
+        last_draw = list(numbers[-k:]) if len(numbers) >= k else None
+
         all_sets, seen, lines = [], set(), []
         for i in range(so_luong):
-            nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq)
+            nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq, last_draw)
             seen.add(tuple(nums))
             sp = None
             if cfg.get("has_special") and sp_freq:
@@ -680,9 +711,11 @@ async def post_result(type_key):
     sp_freq = compute_freq(all_sp, cfg.get("special_n", 55)) if all_sp else None
 
     embed2 = discord.Embed(title=f"🎯 Gợi ý 5 bộ số kì tiếp — {cfg['label']}", color=0x1D9E75)
+    k = cfg["k"]
+    last_draw = list(all_nums[-k:]) if len(all_nums) >= k else None
     all_sets, seen = [], set()
     for i in range(5):
-        nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq)
+        nums = generate_nums(freq, cfg["n"], cfg["k"], seen, days_since, pair_freq, last_draw)
         seen.add(tuple(nums))
         sp = None
         if cfg.get("has_special") and sp_freq:
