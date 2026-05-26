@@ -23,33 +23,41 @@ HEADERS = {
 
 def parse_results(soup, today_str, type_key):
     text = soup.get_text(" ", strip=True)
-
-    # DEBUG: in ra 400 ký tự quanh "kỳ" để xem format
-    idx = text.lower().find("kỳ")
-    if idx >= 0:
-        print(f"[DEBUG] {repr(text[max(0,idx-10):idx+400])}")
-    else:
-        print("[DEBUG] Không tìm thấy 'kỳ' trong text!")
-        print(f"[DEBUG] 500 ký tự đầu: {repr(text[:500])}")
-
     results = []
+
+    # Match tất cả kỳ (không filter ngày), lấy hết rồi filter sau
     pattern = re.compile(
-        r'kỳ\s+#(\d+)\s+ngày\s+(' + re.escape(today_str) + r')\s*-\s*Lúc\s+(\d+:\d+)\s+((?:\d+\s+){4,8})',
+        r'kỳ\s+#(\d+)\s+ngày\s+(\d{2}/\d{2}/\d{4})\s*-\s*Lúc\s+(\d+:\d+)\s+((?:\d+\s*){4,8})',
         re.IGNORECASE
     )
     num_count = {"535": 6, "645": 6, "655": 7}[type_key]
+
     for m in pattern.finditer(text):
         ky = m.group(1).zfill(5)
-        date_raw = m.group(2)
+        date_raw = m.group(2)   # DD/MM/YYYY
         time_raw = m.group(3)
         nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
-        if len(nums_raw) >= num_count:
-            d, mo, y = date_raw.split("/")
-            iso_date = f"{y}-{mo}-{d}"
-            result = nums_raw[:num_count]
-            results.append({"id": ky, "date": iso_date, "time": time_raw, "result": result})
-            print(f"     ✅ Kỳ {ky} {time_raw}: {result}")
-    return results
+
+        if len(nums_raw) < num_count:
+            continue
+
+        d, mo, y = date_raw.split("/")
+        iso_date = f"{y}-{mo}-{d}"
+        result = nums_raw[:num_count]
+        results.append({"id": ky, "date": iso_date, "time": time_raw, "result": result})
+        print(f"     Found kỳ {ky} ngày {date_raw} {time_raw}: {result}")
+
+    # Chỉ giữ kỳ của hôm nay
+    today_iso = datetime.strptime(today_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+    today_results = [r for r in results if r["date"] == today_iso]
+
+    if not today_results and results:
+        # Chưa có kỳ hôm nay (chưa đến giờ xổ) → lấy kỳ mới nhất
+        latest = sorted(results, key=lambda x: x["id"], reverse=True)[0]
+        print(f"     ⚠️ Chưa có kỳ hôm nay, kỳ mới nhất: {latest['id']} ngày {latest['date']}")
+        return today_results  # trả về rỗng, bot sẽ fallback JSONL
+
+    return today_results
 
 def fetch_today():
     now = datetime.now(VN_TZ)
