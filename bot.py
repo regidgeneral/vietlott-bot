@@ -542,6 +542,76 @@ def parse_result_list(result_list, cfg):
         pass
     return None, None
 
+def save_suggestions(type_key, ky, ngay, time_str, all_sets):
+    """Lưu 5 bộ số gợi ý vào sheet 'suggestions'"""
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet("suggestions")
+        # Header nếu chưa có
+        existing = ws.get_all_values()
+        if not existing:
+            ws.append_row(["type_key", "ky", "date", "time", "bo1", "bo2", "bo3", "bo4", "bo5"])
+        # Kiểm tra kỳ đã lưu chưa
+        if any(str(row[1]).strip() == str(ky).strip() and str(row[0]).strip() == type_key
+               for row in existing[1:] if len(row) >= 2):
+            print(f"⚠️ Suggestions kỳ {ky} đã tồn tại")
+            return
+        row = [type_key, ky, ngay, time_str]
+        for nums, sp in all_sets[:5]:
+            nums_str = " ".join(f"{n:02d}" for n in nums)
+            if sp:
+                nums_str += f" | {sp:02d}"
+            row.append(nums_str)
+        # Pad nếu < 5 bộ
+        while len(row) < 9:
+            row.append("")
+        ws.append_row(row)
+        print(f"✅ Saved suggestions kỳ {ky}")
+    except Exception as e:
+        print(f"⚠️ save_suggestions error: {e}")
+
+def compare_with_suggestions(type_key, ky, result_nums, result_special):
+    """So sánh kết quả thực tế với bộ số đã gợi kỳ trước"""
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet("suggestions")
+        rows = ws.get_all_values()
+        if len(rows) <= 1:
+            return None
+
+        # Tìm kỳ trước của type_key
+        prev_rows = [r for r in rows[1:] if len(r) >= 5 and r[0] == type_key]
+        if not prev_rows:
+            return None
+
+        # Lấy kỳ gần nhất (trước kỳ hiện tại)
+        prev_rows_sorted = sorted(prev_rows, key=lambda r: r[1], reverse=True)
+        prev = None
+        for r in prev_rows_sorted:
+            if r[1].strip() != str(ky).strip():
+                prev = r
+                break
+        if not prev:
+            return None
+
+        prev_ky = prev[1]
+        result_set = set(result_nums)
+        comparisons = []
+        for i, col in enumerate(prev[4:9], 1):
+            if not col.strip():
+                continue
+            # Parse "01 06 09 15 23 | 08" hoặc "01 06 09 15 23"
+            parts = col.split("|")
+            nums_str = parts[0].strip()
+            nums = [int(x) for x in nums_str.split() if x.isdigit()]
+            matched = sorted(set(nums) & result_set)
+            comparisons.append((i, nums, matched))
+
+        return prev_ky, comparisons
+    except Exception as e:
+        print(f"⚠️ compare_with_suggestions error: {e}")
+        return None
+
 def fetch_latest_result(type_key):
     """
     Ưu tiên đọc data/today.json từ GitHub (realtime hôm nay).
@@ -753,11 +823,32 @@ async def post_result(type_key):
 
     save_result(type_key, ngay, ky, numbers, special)
 
+    # So sánh với gợi ý kỳ trước
+    compare_result = compare_with_suggestions(type_key, ky, numbers, special)
+
     embed = discord.Embed(title=f"🎰 Kết quả {cfg['label']} — {ngay}", color=0xE74C3C)
     embed.add_field(name="Kỳ", value=f"**{ky}**", inline=True)
     embed.add_field(name="Kết quả", value=" ".join(f"`{n:02d}`" for n in numbers), inline=False)
     if special:
         embed.add_field(name="Đặc biệt" if type_key == "535" else "Power", value=f"`{special:02d}`", inline=True)
+
+    # Thêm phần so sánh nếu có
+    if compare_result:
+        prev_ky, comparisons = compare_result
+        lines = []
+        for i, nums, matched in comparisons:
+            nums_disp = " ".join(f"`{n:02d}`" for n in nums)
+            if matched:
+                matched_disp = " ".join(f"`{n:02d}`" for n in matched)
+                lines.append(f"Bộ {i}: {nums_disp} → ✅ Trúng **{len(matched)}** số: {matched_disp}")
+            else:
+                lines.append(f"Bộ {i}: {nums_disp} → ❌ 0 số")
+        embed.add_field(
+            name=f"📊 So sánh với gợi ý kỳ #{prev_ky}",
+            value="\n".join(lines),
+            inline=False
+        )
+
     embed.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed)
 
@@ -787,6 +878,10 @@ async def post_result(type_key):
     embed2.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
     embed2.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed2, view=make_button(sms))
+
+    # Lưu gợi ý vào Sheets để so sánh kỳ sau
+    time_str = datetime.now(VN_TZ).strftime("%H:%M")
+    save_suggestions(type_key, ky, ngay, time_str, all_sets)
 
 async def scheduler():
     print("⏰ Scheduler started")
