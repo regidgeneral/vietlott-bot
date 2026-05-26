@@ -1,0 +1,36 @@
+name: Train ML Model
+
+on:
+  schedule:
+    # Chay moi Chu Nhat 00:00 UTC (07:00 VN)
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Train models
+        run: python scripts/train_model.py
+
+      - name: Commit and push models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/
+          git diff --staged --quiet || git commit -m "chore: retrain models $(date +'%Y-%m-%d')"
+          git push
