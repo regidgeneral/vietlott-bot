@@ -25,7 +25,7 @@ def parse_results(soup, today_str, type_key):
     text = soup.get_text(" ", strip=True)
     results = []
 
-    # Match tất cả kỳ (không filter ngày), lấy hết rồi filter sau
+    # Format: "ky ́ #662 nga ̀y 25/05/2026 - Lu ́c 21:00 01 06 09 15 23 08"
     pattern = re.compile(
         r'kỳ\s+#(\d+)\s+ngày\s+(\d{2}/\d{2}/\d{4})\s*-\s*Lúc\s+(\d+:\d+)\s+((?:\d+\s*){4,8})',
         re.IGNORECASE
@@ -34,28 +34,23 @@ def parse_results(soup, today_str, type_key):
 
     for m in pattern.finditer(text):
         ky = m.group(1).zfill(5)
-        date_raw = m.group(2)   # DD/MM/YYYY
+        date_raw = m.group(2)
         time_raw = m.group(3)
         nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
-
         if len(nums_raw) < num_count:
             continue
-
         d, mo, y = date_raw.split("/")
         iso_date = f"{y}-{mo}-{d}"
-        result = nums_raw[:num_count]
-        results.append({"id": ky, "date": iso_date, "time": time_raw, "result": result})
-        print(f"     Found kỳ {ky} ngày {date_raw} {time_raw}: {result}")
+        results.append({"id": ky, "date": iso_date, "time": time_raw, "result": nums_raw[:num_count]})
+        print(f"     Found ky {ky} {date_raw} {time_raw}: {nums_raw[:num_count]}")
 
-    # Chỉ giữ kỳ của hôm nay
     today_iso = datetime.strptime(today_str, "%d/%m/%Y").strftime("%Y-%m-%d")
     today_results = [r for r in results if r["date"] == today_iso]
 
     if not today_results and results:
-        # Chưa có kỳ hôm nay (chưa đến giờ xổ) → lấy kỳ mới nhất
         latest = sorted(results, key=lambda x: x["id"], reverse=True)[0]
-        print(f"     ⚠️ Chưa có kỳ hôm nay, kỳ mới nhất: {latest['id']} ngày {latest['date']}")
-        return today_results  # trả về rỗng, bot sẽ fallback JSONL
+        print(f"     No today results, using latest: {latest['id']} {latest['date']}")
+        return [latest]
 
     return today_results
 
@@ -70,21 +65,21 @@ def fetch_today():
         try:
             r = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
-                print(f"  ❌ {type_key}: HTTP {r.status_code}")
+                print(f"  X {type_key}: HTTP {r.status_code}")
                 output["results"][type_key] = []
                 continue
             soup = BeautifulSoup(r.text, "html.parser")
             results = parse_results(soup, today_str, type_key)
             output["results"][type_key] = results
-            print(f"  ✅ {type_key}: {len(results)} kỳ hôm nay")
+            print(f"  OK {type_key}: {len(results)} results")
         except Exception as e:
-            print(f"  ❌ {type_key}: {e}")
+            print(f"  X {type_key}: {e}")
             output["results"][type_key] = []
 
     os.makedirs("data", exist_ok=True)
     with open("data/today.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print(f"\nSaved to data/today.json")
+    print(f"Saved to data/today.json")
     return output
 
 if __name__ == "__main__":
