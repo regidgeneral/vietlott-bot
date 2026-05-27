@@ -625,18 +625,21 @@ def fetch_latest_result(type_key):
         r = requests.get(TODAY_JSON_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if r.status_code == 200:
             data = r.json()
-            if data.get("date") == today:
-                entries = data.get("results", {}).get(type_key, [])
-                if entries:
-                    latest = sorted(entries, key=lambda x: x["id"], reverse=True)[0]
+            entries = data.get("results", {}).get(type_key, [])
+            if entries:
+                latest = sorted(entries, key=lambda x: x["id"], reverse=True)[0]
+                ky_date = latest.get("date", "")
+                # Chỉ dùng nếu kỳ là của hôm nay
+                if ky_date == today:
                     ky = latest["id"].zfill(5)
-                    d_iso = latest["date"]
-                    y, mo, dd = d_iso.split("-")
+                    y, mo, dd = ky_date.split("-")
                     d_str = f"{dd}/{mo}/{y}"
                     nums, special = parse_result_list(latest["result"], cfg)
                     if nums:
                         print(f"✅ {type_key}: today.json kỳ {ky}")
                         return f"{ky} ({d_str})", nums, special
+                else:
+                    print(f"⚠️ {type_key}: today.json có kỳ {latest['id']} ngày {ky_date}, chưa phải hôm nay ({today})")
     except Exception as e:
         print(f"⚠️ today.json fetch error {type_key}: {e}")
 
@@ -812,26 +815,10 @@ async def post_result(type_key):
     _cache.pop(f"text_{type_key}", None)
 
     ky, numbers, special = None, None, None
-    today_iso = datetime.now(VN_TZ).strftime("%Y-%m-%d")
-    for attempt in range(6):
+    for _ in range(5):
         ky, numbers, special = fetch_latest_result(type_key)
-        if numbers:
-            # Kiểm tra kỳ có phải hôm nay không
-            # ky format: "00664 (27/05/2026)" → extract ngày
-            import re as _re
-            m = _re.search(r'(\d{2})/(\d{2})/(\d{4})', ky or "")
-            if m:
-                ky_date = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
-                if ky_date == today_iso:
-                    print(f"✅ {type_key}: kỳ hôm nay {ky}")
-                    break
-                else:
-                    print(f"⚠️ {type_key}: kỳ {ky} chưa phải hôm nay, retry {attempt+1}/6...")
-                    numbers = None  # reset để retry
-            else:
-                break
-        if attempt < 5:
-            await asyncio.sleep(300)  # chờ 5 phút rồi retry
+        if numbers: break
+        await asyncio.sleep(120)
 
     if not numbers:
         await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']}!")
