@@ -47,10 +47,9 @@ def parse_results(soup, today_str, type_key):
     today_iso = datetime.strptime(today_str, "%d/%m/%Y").strftime("%Y-%m-%d")
     today_results = [r for r in results if r["date"] == today_iso]
 
-    if not today_results and results:
-        latest = sorted(results, key=lambda x: x["id"], reverse=True)[0]
-        print(f"     No today results, using latest: {latest['id']} {latest['date']}")
-        return [latest]
+    if not today_results:
+        print(f"     No results for today ({today_iso}), returning empty")
+        return []
 
     return today_results
 
