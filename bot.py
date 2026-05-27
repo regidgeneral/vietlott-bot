@@ -58,9 +58,9 @@ BAO_645_655 = {
 }
 
 LICH_XO = {
-    "535": [(d, 13, 20) for d in range(7)] + [(d, 21, 20) for d in range(7)],
-    "645": [(2, 18, 25), (4, 18, 25), (6, 18, 25)],
-    "655": [(1, 18, 25), (3, 18, 25), (5, 18, 25)],
+    "535": [(d, 13, 5) for d in range(7)] + [(d, 21, 5) for d in range(7)],
+    "645": [(2, 18, 5), (4, 18, 5), (6, 18, 5)],
+    "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],
 }
 
 intents = discord.Intents.all()
@@ -812,10 +812,26 @@ async def post_result(type_key):
     _cache.pop(f"text_{type_key}", None)
 
     ky, numbers, special = None, None, None
-    for _ in range(5):
+    today_iso = datetime.now(VN_TZ).strftime("%Y-%m-%d")
+    for attempt in range(6):
         ky, numbers, special = fetch_latest_result(type_key)
-        if numbers: break
-        await asyncio.sleep(120)
+        if numbers:
+            # Kiểm tra kỳ có phải hôm nay không
+            # ky format: "00664 (27/05/2026)" → extract ngày
+            import re as _re
+            m = _re.search(r'(\d{2})/(\d{2})/(\d{4})', ky or "")
+            if m:
+                ky_date = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+                if ky_date == today_iso:
+                    print(f"✅ {type_key}: kỳ hôm nay {ky}")
+                    break
+                else:
+                    print(f"⚠️ {type_key}: kỳ {ky} chưa phải hôm nay, retry {attempt+1}/6...")
+                    numbers = None  # reset để retry
+            else:
+                break
+        if attempt < 5:
+            await asyncio.sleep(300)  # chờ 5 phút rồi retry
 
     if not numbers:
         await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']}!")
