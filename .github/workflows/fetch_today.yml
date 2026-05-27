@@ -2,12 +2,12 @@ name: Fetch Vietlott Results
 
 on:
   schedule:
-    # 535 xổ 13:00 VN → chạy 13:10 VN = 06:10 UTC
+    # 535 xổ 13:00 VN → Actions 13:10 VN = 06:10 UTC
     - cron: '10 6 * * *'
-    # 535 xổ 21:00 VN → chạy 21:10 VN = 14:10 UTC
+    # 535 xổ 21:00 VN → Actions 21:10 VN = 14:10 UTC
     - cron: '10 14 * * *'
-    # 645/655 xổ 18:05 VN → chạy 18:15 VN = 11:15 UTC
-    - cron: '15 11 * * *'
+    # 645/655 xổ 18:05 VN → Actions 18:10 VN = 11:10 UTC
+    - cron: '10 11 * * *'
   workflow_dispatch:
 
 jobs:
