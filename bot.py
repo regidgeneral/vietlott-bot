@@ -58,9 +58,9 @@ BAO_645_655 = {
 }
 
 LICH_XO = {
-    "535": [(d, 13, 5) for d in range(7)] + [(d, 21, 5) for d in range(7)],
-    "645": [(2, 18, 5), (4, 18, 5), (6, 18, 5)],
-    "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],
+    "535": [(d, 13, 20) for d in range(7)] + [(d, 21, 20) for d in range(7)],
+    "645": [(2, 18, 20), (4, 18, 20), (6, 18, 20)],
+    "655": [(1, 18, 20), (3, 18, 20), (5, 18, 20)],
 }
 
 intents = discord.Intents.all()
@@ -625,21 +625,18 @@ def fetch_latest_result(type_key):
         r = requests.get(TODAY_JSON_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if r.status_code == 200:
             data = r.json()
-            entries = data.get("results", {}).get(type_key, [])
-            if entries:
-                latest = sorted(entries, key=lambda x: x["id"], reverse=True)[0]
-                ky_date = latest.get("date", "")
-                # Chỉ dùng nếu kỳ là của hôm nay
-                if ky_date == today:
+            if data.get("date") == today:
+                entries = data.get("results", {}).get(type_key, [])
+                if entries:
+                    latest = sorted(entries, key=lambda x: x["id"], reverse=True)[0]
                     ky = latest["id"].zfill(5)
-                    y, mo, dd = ky_date.split("-")
+                    d_iso = latest["date"]
+                    y, mo, dd = d_iso.split("-")
                     d_str = f"{dd}/{mo}/{y}"
                     nums, special = parse_result_list(latest["result"], cfg)
                     if nums:
                         print(f"✅ {type_key}: today.json kỳ {ky}")
                         return f"{ky} ({d_str})", nums, special
-                else:
-                    print(f"⚠️ {type_key}: today.json có kỳ {latest['id']} ngày {ky_date}, chưa phải hôm nay ({today})")
     except Exception as e:
         print(f"⚠️ today.json fetch error {type_key}: {e}")
 
