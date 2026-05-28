@@ -542,37 +542,31 @@ def parse_result_list(result_list, cfg):
         pass
     return None, None
 
-def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler"):
-    """Lưu bộ số gợi ý vào sheet 'suggestions'
-    source: 'scheduler' (tự động sau kỳ xổ) hoặc 'manual' (user gọi lệnh)
-    """
+def save_suggestions(type_key, ky, ngay, time_str, all_sets):
+    """Lưu 5 bộ số gợi ý vào sheet 'suggestions'"""
     try:
         wb = get_sheet()
         ws = wb.worksheet("suggestions")
+        # Header nếu chưa có
         existing = ws.get_all_values()
-        # Tạo header nếu chưa có
         if not existing:
-            ws.append_row(["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"])
-            existing = [["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"]]
-        # Với scheduler: mỗi kỳ chỉ lưu 1 lần
-        # Với manual: lưu mỗi lần user gọi (không dedup)
-        if source == "scheduler":
-            if any(str(row[1]).strip() == str(ky).strip()
-                   and str(row[0]).strip() == type_key
-                   and len(row) > 4 and row[4] == "scheduler"
-                   for row in existing[1:] if len(row) >= 2):
-                print(f"⚠️ Suggestions scheduler kỳ {ky} đã tồn tại")
-                return
-        row = [type_key, ky, ngay, time_str, source]
+            ws.append_row(["type_key", "ky", "date", "time", "bo1", "bo2", "bo3", "bo4", "bo5"])
+        # Kiểm tra kỳ đã lưu chưa
+        if any(str(row[1]).strip() == str(ky).strip() and str(row[0]).strip() == type_key
+               for row in existing[1:] if len(row) >= 2):
+            print(f"⚠️ Suggestions kỳ {ky} đã tồn tại")
+            return
+        row = [type_key, ky, ngay, time_str]
         for nums, sp in all_sets[:5]:
             nums_str = " ".join(f"{n:02d}" for n in nums)
             if sp:
                 nums_str += f" | {sp:02d}"
             row.append(nums_str)
-        while len(row) < 10:
+        # Pad nếu < 5 bộ
+        while len(row) < 9:
             row.append("")
         ws.append_row(row)
-        print(f"✅ Saved suggestions kỳ {ky} ({source})")
+        print(f"✅ Saved suggestions kỳ {ky}")
     except Exception as e:
         print(f"⚠️ save_suggestions error: {e}")
 
@@ -708,11 +702,12 @@ async def run_pick(interaction, type_key, so_luong):
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
 
-        # Lưu gợi ý manual vào Sheets
         try:
             ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
             time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
-            save_suggestions(type_key, ky or "?", ngay_str, time_str_m, all_sets, source="manual")
+            ky_latest, _, _ = fetch_latest_result(type_key)
+            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
+            save_suggestions(type_key, ky_save, ngay_str, time_str_m, all_sets, source="manual")
         except Exception as e2:
             print(f"⚠️ save manual suggestions: {e2}")
     except Exception as e:
@@ -768,6 +763,16 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
+
+        try:
+            ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+            time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
+            ky_latest, _, _ = fetch_latest_result("535")
+            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
+            save_suggestions("535", ky_save, ngay_str, time_str_m,
+                             all_sets, source=f"manual_bao535_{bao_key}")
+        except Exception as e2:
+            print(f"⚠️ save bao535 suggestions: {e2}")
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
 
@@ -806,6 +811,18 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
+
+        try:
+            ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+            time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
+            ky_latest, _, _ = fetch_latest_result(type_key)
+            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
+            save_suggestions(type_key, ky_save, ngay_str, time_str_m,
+                             [(nums, None) for nums in [generate_nums(freq, cfg["n"], info["n"],
+                              set(), days_since, pair_freq, last_draw, type_key=type_key)]],
+                             source=f"manual_bao{type_key}_{bao_key}")
+        except Exception as e2:
+            print(f"⚠️ save bao suggestions: {e2}")
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
@@ -895,7 +912,7 @@ async def post_result(type_key):
 
     # Lưu gợi ý vào Sheets để so sánh kỳ sau
     time_str = datetime.now(VN_TZ).strftime("%H:%M")
-    save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
+    save_suggestions(type_key, ky, ngay, time_str, all_sets)
 
 async def scheduler():
     print("⏰ Scheduler started")
