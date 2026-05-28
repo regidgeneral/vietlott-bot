@@ -2,7 +2,6 @@ name: Train ML Model
 
 on:
   schedule:
-    # Chay moi Chu Nhat 00:00 UTC (07:00 VN)
     - cron: '0 0 * * 0'
   workflow_dispatch:
 
@@ -22,9 +21,12 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests gspread google-auth
 
       - name: Train models
+        env:
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
         run: python scripts/train_model.py
 
       - name: Commit and push models
