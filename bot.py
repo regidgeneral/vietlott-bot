@@ -773,7 +773,8 @@ async def run_bao535(interaction, bao_key, so_bo):
             ky_latest, _, _ = fetch_latest_result("535")
             ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
             save_suggestions("535", ky_save, ngay_str, time_str_m,
-                             all_sets, source=f"manual_bao535_{bao_key}")
+                             [(nums, None) for nums in seen],
+                             source=f"manual_bao535_{bao_key}")
         except Exception as e2:
             print(f"⚠️ save bao535 suggestions: {e2}")
     except Exception as e:
