@@ -542,31 +542,34 @@ def parse_result_list(result_list, cfg):
         pass
     return None, None
 
-def save_suggestions(type_key, ky, ngay, time_str, all_sets):
-    """Lưu 5 bộ số gợi ý vào sheet 'suggestions'"""
+def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler"):
+    """Lưu bộ số gợi ý vào sheet 'suggestions'
+    source: 'scheduler' (tự động sau kỳ xổ) hoặc 'manual' (user gọi lệnh)
+    """
     try:
         wb = get_sheet()
         ws = wb.worksheet("suggestions")
-        # Header nếu chưa có
         existing = ws.get_all_values()
         if not existing:
-            ws.append_row(["type_key", "ky", "date", "time", "bo1", "bo2", "bo3", "bo4", "bo5"])
-        # Kiểm tra kỳ đã lưu chưa
-        if any(str(row[1]).strip() == str(ky).strip() and str(row[0]).strip() == type_key
-               for row in existing[1:] if len(row) >= 2):
-            print(f"⚠️ Suggestions kỳ {ky} đã tồn tại")
-            return
-        row = [type_key, ky, ngay, time_str]
+            ws.append_row(["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"])
+            existing = [["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"]]
+        if source == "scheduler":
+            if any(str(row[1]).strip() == str(ky).strip()
+                   and str(row[0]).strip() == type_key
+                   and len(row) > 4 and row[4] == "scheduler"
+                   for row in existing[1:] if len(row) >= 2):
+                print(f"⚠️ Suggestions scheduler kỳ {ky} đã tồn tại")
+                return
+        row = [type_key, ky, ngay, time_str, source]
         for nums, sp in all_sets[:5]:
             nums_str = " ".join(f"{n:02d}" for n in nums)
             if sp:
                 nums_str += f" | {sp:02d}"
             row.append(nums_str)
-        # Pad nếu < 5 bộ
-        while len(row) < 9:
+        while len(row) < 10:
             row.append("")
         ws.append_row(row)
-        print(f"✅ Saved suggestions kỳ {ky}")
+        print(f"✅ Saved suggestions kỳ {ky} ({source})")
     except Exception as e:
         print(f"⚠️ save_suggestions error: {e}")
 
