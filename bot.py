@@ -615,6 +615,72 @@ def compare_with_suggestions(type_key, ky, result_nums, result_special):
         print(f"⚠️ compare_with_suggestions error: {e}")
         return None
 
+def save_performance(type_key, ky, ngay, result_nums, suggestions_rows):
+    """Tính điểm và lưu performance sau mỗi kỳ xổ"""
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet("performance")
+        existing = ws.get_all_values()
+        if not existing:
+            ws.append_row(["date", "type_key", "ky", "source", "avg_matched", "total_sets", "details"])
+
+        result_set = set(result_nums)
+        # Nhóm theo source
+        by_source = {}
+        for row in suggestions_rows:
+            if len(row) < 6: continue
+            src = row[4] if len(row) > 4 else "unknown"
+            if src not in by_source:
+                by_source[src] = []
+            # Parse các bộ số (cột 5 trở đi)
+            for col in row[5:]:
+                if not col.strip(): continue
+                nums = [int(x) for x in col.split("|")[0].split() if x.isdigit()]
+                if nums:
+                    matched = len(set(nums) & result_set)
+                    by_source[src].append(matched)
+
+        for src, scores in by_source.items():
+            if not scores: continue
+            avg = round(sum(scores) / len(scores), 2)
+            details = ",".join(str(s) for s in scores)
+            ws.append_row([ngay, type_key, ky, src, avg, len(scores), details])
+            print(f"✅ Performance {type_key} kỳ {ky} ({src}): avg={avg} ({len(scores)} bộ)")
+    except Exception as e:
+        print(f"⚠️ save_performance error: {e}")
+
+def get_performance_weights(type_key):
+    """Đọc performance 30 ngày gần nhất, tính weight tối ưu cho model"""
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet("performance")
+        rows = ws.get_all_values()
+        if len(rows) <= 1:
+            return None
+
+        # Lọc scheduler rows của type_key trong 30 ngày gần nhất
+        from datetime import datetime as _dt, timedelta
+        cutoff = (_dt.now() - timedelta(days=30)).strftime("%d/%m/%Y")
+        scheduler_scores = []
+        for row in rows[1:]:
+            if len(row) < 6: continue
+            if row[1] != type_key: continue
+            if row[3] != "scheduler": continue
+            try:
+                avg = float(row[4])
+                scheduler_scores.append(avg)
+            except: continue
+
+        if len(scheduler_scores) < 5:
+            return None  # Chưa đủ data
+
+        overall_avg = sum(scheduler_scores) / len(scheduler_scores)
+        print(f"📊 {type_key}: avg_matched={round(overall_avg, 2)} over {len(scheduler_scores)} kỳ")
+        return {"avg_matched": overall_avg, "n_samples": len(scheduler_scores)}
+    except Exception as e:
+        print(f"⚠️ get_performance_weights error: {e}")
+        return None
+
 def fetch_latest_result(type_key):
     """
     Ưu tiên đọc data/today.json từ GitHub (realtime hôm nay).
@@ -859,6 +925,21 @@ async def post_result(type_key):
 
     # So sánh với gợi ý kỳ trước
     compare_result = compare_with_suggestions(type_key, ky, numbers, special)
+
+    # Lấy suggestions của kỳ trước để tính performance
+    try:
+        wb_perf = get_sheet()
+        ws_perf = wb_perf.worksheet("suggestions")
+        all_rows = ws_perf.get_all_values()
+        prev_suggestions = [r for r in all_rows[1:] if len(r) >= 2
+                           and r[0] == type_key and r[1].strip() != str(ky).strip()]
+        if prev_suggestions:
+            latest_prev_ky = sorted(prev_suggestions, key=lambda r: r[1], reverse=True)[0][1]
+            prev_ky_rows = [r for r in prev_suggestions if r[1].strip() == latest_prev_ky.strip()]
+            if prev_ky_rows:
+                save_performance(type_key, ky, ngay, numbers, prev_ky_rows)
+    except Exception as e:
+        print(f"⚠️ performance tracking error: {e}")
 
     embed = discord.Embed(title=f"🎰 Kết quả {cfg['label']} — {ngay}", color=0xE74C3C)
     embed.add_field(name="Kỳ", value=f"**{ky}**", inline=True)
