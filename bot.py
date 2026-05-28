@@ -561,13 +561,13 @@ def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
                 print(f"⚠️ Suggestions scheduler kỳ {ky} đã tồn tại")
                 return
         row = [type_key, ky, ngay, time_str, source]
-        for nums, sp in all_sets[:5]:
+        # scheduler chỉ lưu 5 bộ, manual lưu hết
+        sets_to_save = all_sets[:5] if source == "scheduler" else all_sets
+        for nums, sp in sets_to_save:
             nums_str = " ".join(f"{n:02d}" for n in nums)
             if sp:
                 nums_str += f" | {sp:02d}"
             row.append(nums_str)
-        while len(row) < 10:
-            row.append("")
         ws.append_row(row)
         print(f"✅ Saved suggestions kỳ {ky} ({source})")
     except Exception as e:
@@ -821,8 +821,7 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
             ky_latest, _, _ = fetch_latest_result(type_key)
             ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
             save_suggestions(type_key, ky_save, ngay_str, time_str_m,
-                             [(nums, None) for nums in [generate_nums(freq, cfg["n"], info["n"],
-                              set(), days_since, pair_freq, last_draw, type_key=type_key)]],
+                             [(nums, None) for nums in seen],
                              source=f"manual_bao{type_key}_{bao_key}")
         except Exception as e2:
             print(f"⚠️ save bao suggestions: {e2}")
