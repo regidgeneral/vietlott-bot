@@ -58,9 +58,9 @@ BAO_645_655 = {
 }
 
 LICH_XO = {
-    "535": [(d, 13, 5) for d in range(7)] + [(d, 21, 5) for d in range(7)],
-    "645": [(2, 18, 5), (4, 18, 5), (6, 18, 5)],
-    "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],
+    "535": [(d, 13, 20) for d in range(7)] + [(d, 21, 20) for d in range(7)],
+    "645": [(2, 18, 20), (4, 18, 20), (6, 18, 20)],
+    "655": [(1, 18, 20), (3, 18, 20), (5, 18, 20)],
 }
 
 intents = discord.Intents.all()
@@ -691,7 +691,11 @@ def fetch_latest_result(type_key):
 
     # --- Thử đọc today.json ---
     try:
-        r = requests.get(TODAY_JSON_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        import time as _time
+        bust = int(_time.time())
+        r = requests.get(f"{TODAY_JSON_URL}?t={bust}",
+                        headers={"User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache"},
+                        timeout=10)
         if r.status_code == 200:
             data = r.json()
             if data.get("date") == today:
