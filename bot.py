@@ -58,9 +58,9 @@ BAO_645_655 = {
 }
 
 LICH_XO = {
-    "535": [(d, 13, 20) for d in range(7)] + [(d, 21, 20) for d in range(7)],
-    "645": [(2, 18, 20), (4, 18, 20), (6, 18, 20)],
-    "655": [(1, 18, 20), (3, 18, 20), (5, 18, 20)],
+    "535": [(d, 13, 5) for d in range(7)] + [(d, 21, 5) for d in range(7)],
+    "645": [(2, 18, 5), (4, 18, 5), (6, 18, 5)],
+    "655": [(1, 18, 5), (3, 18, 5), (5, 18, 5)],
 }
 
 intents = discord.Intents.all()
@@ -542,31 +542,37 @@ def parse_result_list(result_list, cfg):
         pass
     return None, None
 
-def save_suggestions(type_key, ky, ngay, time_str, all_sets):
-    """Lưu 5 bộ số gợi ý vào sheet 'suggestions'"""
+def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler"):
+    """Lưu bộ số gợi ý vào sheet 'suggestions'
+    source: 'scheduler' (tự động sau kỳ xổ) hoặc 'manual' (user gọi lệnh)
+    """
     try:
         wb = get_sheet()
         ws = wb.worksheet("suggestions")
-        # Header nếu chưa có
         existing = ws.get_all_values()
+        # Tạo header nếu chưa có
         if not existing:
-            ws.append_row(["type_key", "ky", "date", "time", "bo1", "bo2", "bo3", "bo4", "bo5"])
-        # Kiểm tra kỳ đã lưu chưa
-        if any(str(row[1]).strip() == str(ky).strip() and str(row[0]).strip() == type_key
-               for row in existing[1:] if len(row) >= 2):
-            print(f"⚠️ Suggestions kỳ {ky} đã tồn tại")
-            return
-        row = [type_key, ky, ngay, time_str]
+            ws.append_row(["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"])
+            existing = [["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"]]
+        # Với scheduler: mỗi kỳ chỉ lưu 1 lần
+        # Với manual: lưu mỗi lần user gọi (không dedup)
+        if source == "scheduler":
+            if any(str(row[1]).strip() == str(ky).strip()
+                   and str(row[0]).strip() == type_key
+                   and len(row) > 4 and row[4] == "scheduler"
+                   for row in existing[1:] if len(row) >= 2):
+                print(f"⚠️ Suggestions scheduler kỳ {ky} đã tồn tại")
+                return
+        row = [type_key, ky, ngay, time_str, source]
         for nums, sp in all_sets[:5]:
             nums_str = " ".join(f"{n:02d}" for n in nums)
             if sp:
                 nums_str += f" | {sp:02d}"
             row.append(nums_str)
-        # Pad nếu < 5 bộ
-        while len(row) < 9:
+        while len(row) < 10:
             row.append("")
         ws.append_row(row)
-        print(f"✅ Saved suggestions kỳ {ky}")
+        print(f"✅ Saved suggestions kỳ {ky} ({source})")
     except Exception as e:
         print(f"⚠️ save_suggestions error: {e}")
 
@@ -701,6 +707,14 @@ async def run_pick(interaction, type_key, so_luong):
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
+
+        # Lưu gợi ý manual vào Sheets
+        try:
+            ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+            time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
+            save_suggestions(type_key, ky or "?", ngay_str, time_str_m, all_sets, source="manual")
+        except Exception as e2:
+            print(f"⚠️ save manual suggestions: {e2}")
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
 
@@ -881,7 +895,7 @@ async def post_result(type_key):
 
     # Lưu gợi ý vào Sheets để so sánh kỳ sau
     time_str = datetime.now(VN_TZ).strftime("%H:%M")
-    save_suggestions(type_key, ky, ngay, time_str, all_sets)
+    save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
 
 async def scheduler():
     print("⏰ Scheduler started")
