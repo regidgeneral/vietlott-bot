@@ -1647,10 +1647,27 @@ async def post_result(type_key):
     _cache.pop(f"text_{type_key}", None)
 
     ky, numbers, special = None, None, None
-    for _ in range(5):
+    today_iso = datetime.now(VN_TZ).strftime("%Y-%m-%d")
+
+    for attempt in range(6):
         ky, numbers, special = fetch_latest_result(type_key)
-        if numbers: break
-        await asyncio.sleep(120)
+        if numbers:
+            # Kiểm tra kỳ có phải hôm nay không (Worker trả is_today)
+            # ky format: "00677 (02/06/2026)" → extract ngày
+            import re as _re
+            m = _re.search(r'(\d{2})/(\d{2})/(\d{4})', ky or "")
+            if m:
+                ky_date = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+                if ky_date == today_iso:
+                    print(f"✅ {type_key}: kỳ hôm nay {ky}")
+                    break
+                else:
+                    print(f"⚠️ {type_key}: kỳ {ky} chưa phải hôm nay, retry {attempt+1}/6...")
+                    numbers = None
+            else:
+                break
+        if attempt < 5:
+            await asyncio.sleep(120)
 
     if not numbers:
         await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']}!")
