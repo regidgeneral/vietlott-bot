@@ -58,12 +58,12 @@ BAO_645_655 = {
 }
 
 LICH_XO = {
-    # 535: hàng ngày 13:00 và 21:00 → trigger lúc 13:20 và 21:20
-    "535": [(d, 13, 20) for d in range(7)] + [(d, 21, 20) for d in range(7)],
-    # 645: Thứ 4 (2), Thứ 6 (4), Chủ Nhật (6) lúc 18:00 → trigger 18:20
-    "645": [(2, 18, 20), (4, 18, 20), (6, 18, 20)],
-    # 655: Thứ 3 (1), Thứ 5 (3), Thứ 7 (5) lúc 18:00 → trigger 18:20
-    "655": [(1, 18, 20), (3, 18, 20), (5, 18, 20)],
+    # 535: hàng ngày 13:00 và 21:00 → trigger lúc 13:35 và 21:35
+    "535": [(d, 13, 35) for d in range(7)] + [(d, 21, 35) for d in range(7)],
+    # 645: Thứ 4 (2), Thứ 6 (4), Chủ Nhật (6) lúc 18:00 → trigger 18:35
+    "645": [(2, 18, 35), (4, 18, 35), (6, 18, 35)],
+    # 655: Thứ 3 (1), Thứ 5 (3), Thứ 7 (5) lúc 18:00 → trigger 18:35
+    "655": [(1, 18, 35), (3, 18, 35), (5, 18, 35)],
 }
 
 intents = discord.Intents.all()
@@ -814,10 +814,25 @@ async def post_result(type_key):
     _cache.pop(f"text_{type_key}", None)
 
     ky, numbers, special = None, None, None
-    for _ in range(5):
+    today_iso = datetime.now(VN_TZ).strftime("%Y-%m-%d")
+
+    for attempt in range(6):
         ky, numbers, special = fetch_latest_result(type_key)
-        if numbers: break
-        await asyncio.sleep(120)
+        if numbers:
+            # Worker trả is_today qua ky string "00677 (03/06/2026)"
+            m_date = re.search(r'(\d{2})/(\d{2})/(\d{4})', ky or "")
+            if m_date:
+                ky_date = f"{m_date.group(3)}-{m_date.group(2)}-{m_date.group(1)}"
+                if ky_date == today_iso:
+                    print(f"✅ {type_key}: kỳ hôm nay {ky}")
+                    break
+                else:
+                    print(f"⚠️ {type_key}: kỳ {ky} chưa phải hôm nay ({today_iso}), retry {attempt+1}/6...")
+                    numbers = None
+            else:
+                break
+        if attempt < 5:
+            await asyncio.sleep(120)
 
     if not numbers:
         await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']}!")
