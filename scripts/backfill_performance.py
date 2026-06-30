@@ -66,7 +66,8 @@ def backfill_performance():
         for row in result_data:
             if len(row) < 2 + k:
                 continue
-            ky = row[1].strip().zfill(5)
+            ky_raw = row[1].strip()
+            ky = ky_raw.split(" ")[0].zfill(5)  # "01517 (31/05/2026)" -> "01517"
             date_str = row[0].strip()  # dd/mm/yyyy
             nums = []
             for i in range(2, 2 + k):
