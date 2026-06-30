@@ -82,17 +82,38 @@ def backfill_performance():
         print(f"  Loaded {len(ky_to_result)} ky ket qua cho {type_key} ({len(date_to_result)} ngay)")
 
     # Group suggestions theo (type_key, ky)
+    # LUU Y: data cu (truoc khi them cot source) co format 9 cot:
+    #   type_key, ky, date, time, bo1, bo2, bo3, bo4, bo5
+    # Data moi co format 10 cot:
+    #   type_key, ky, date, time, source, bo1, bo2, bo3, bo4, bo5
+    # Detect: neu cot E (index 4) trong "scheduler/manual/manual_bao..." thi la format moi
+    #         nguoc lai (chua so) thi la format cu -> tu chen source="scheduler"
     grouped = {}
+    fixed_old_format = 0
     for row in sugg_data:
         if len(row) < 5:
             continue
         type_key = row[0].strip()
         ky_raw = row[1].strip()
-        # ky co the dang "00677 (02/06/2026)" hoac chi "00677"
         ky = ky_raw.split(" ")[0].zfill(5)
         date_str = row[2].strip() if len(row) > 2 else ""
+
+        col4 = row[4].strip() if len(row) > 4 else ""
+        is_new_format = col4 == "scheduler" or col4.startswith("manual")
+
+        if is_new_format:
+            normalized_row = row
+        else:
+            # Format cu: chen "scheduler" vao vi tri source (gia dinh la scheduler vi
+            # chi scheduler luu truoc khi co source param)
+            normalized_row = row[:4] + ["scheduler"] + row[4:]
+            fixed_old_format += 1
+
         key = (type_key, ky)
-        grouped.setdefault(key, []).append((date_str, row))
+        grouped.setdefault(key, []).append((date_str, normalized_row))
+
+    if fixed_old_format:
+        print(f"  Da tu dong fix {fixed_old_format} dong format cu (thieu cot source)")
 
     written = 0
     debug_count = 0
