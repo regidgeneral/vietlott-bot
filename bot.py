@@ -576,7 +576,7 @@ def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
         print(f"⚠️ save_suggestions error: {e}")
 
 def compare_with_suggestions(type_key, ky, result_nums, result_special):
-    """So sánh kết quả thực tế với bộ số đã gợi kỳ trước"""
+    """So sánh kết quả thực tế với TẤT CẢ bộ số đã gợi cho kỳ này (mọi nguồn: scheduler, manual, bao...)"""
     try:
         wb = get_sheet()
         ws = wb.worksheet("suggestions")
@@ -584,35 +584,33 @@ def compare_with_suggestions(type_key, ky, result_nums, result_special):
         if len(rows) <= 1:
             return None
 
-        # Tìm kỳ trước của type_key
-        prev_rows = [r for r in rows[1:] if len(r) >= 5 and r[0] == type_key]
-        if not prev_rows:
+        ky_clean = str(ky).split(" ")[0].strip().zfill(5)
+
+        # Lấy TẤT CẢ rows của type_key có ky khớp với kỳ vừa xổ
+        matching_rows = [
+            r for r in rows[1:]
+            if len(r) >= 5 and r[0] == type_key
+            and r[1].strip().split(" ")[0].zfill(5) == ky_clean
+        ]
+        if not matching_rows:
             return None
 
-        # Lấy kỳ gần nhất (trước kỳ hiện tại)
-        prev_rows_sorted = sorted(prev_rows, key=lambda r: r[1], reverse=True)
-        prev = None
-        for r in prev_rows_sorted:
-            if r[1].strip() != str(ky).strip():
-                prev = r
-                break
-        if not prev:
-            return None
-
-        prev_ky = prev[1]
         result_set = set(result_nums)
-        comparisons = []
-        for i, col in enumerate(prev[4:9], 1):
-            if not col.strip():
-                continue
-            # Parse "01 06 09 15 23 | 08" hoặc "01 06 09 15 23"
-            parts = col.split("|")
-            nums_str = parts[0].strip()
-            nums = [int(x) for x in nums_str.split() if x.isdigit()]
-            matched = sorted(set(nums) & result_set)
-            comparisons.append((i, nums, matched))
+        by_source = {}  # source -> list of (nums, matched)
 
-        return prev_ky, comparisons
+        for row in matching_rows:
+            source = row[4] if len(row) > 4 else "unknown"
+            for col in row[5:]:
+                if not col.strip():
+                    continue
+                nums_str = col.split("|")[0].strip()
+                nums = [int(x) for x in nums_str.split() if x.isdigit()]
+                if not nums:
+                    continue
+                matched = sorted(set(nums) & result_set)
+                by_source.setdefault(source, []).append((nums, matched))
+
+        return ky_clean, by_source
     except Exception as e:
         print(f"⚠️ compare_with_suggestions error: {e}")
         return None
@@ -931,21 +929,20 @@ async def post_result(type_key):
 
     save_result(type_key, ngay, ky, numbers, special)
 
-    # So sánh với gợi ý kỳ trước
+    # So sánh với TẤT CẢ gợi ý đã lưu cho kỳ này (mọi nguồn)
     compare_result = compare_with_suggestions(type_key, ky, numbers, special)
 
-    # Lấy suggestions của kỳ trước để tính performance
+    # Tính performance từ chính các suggestions của kỳ này (label đã đúng nghĩa)
     try:
+        ky_clean = str(ky).split(" ")[0].strip().zfill(5)
         wb_perf = get_sheet()
         ws_perf = wb_perf.worksheet("suggestions")
         all_rows = ws_perf.get_all_values()
-        prev_suggestions = [r for r in all_rows[1:] if len(r) >= 2
-                           and r[0] == type_key and r[1].strip() != str(ky).strip()]
-        if prev_suggestions:
-            latest_prev_ky = sorted(prev_suggestions, key=lambda r: r[1], reverse=True)[0][1]
-            prev_ky_rows = [r for r in prev_suggestions if r[1].strip() == latest_prev_ky.strip()]
-            if prev_ky_rows:
-                save_performance(type_key, ky, ngay, numbers, prev_ky_rows)
+        this_ky_rows = [r for r in all_rows[1:] if len(r) >= 5
+                       and r[0] == type_key
+                       and r[1].strip().split(" ")[0].zfill(5) == ky_clean]
+        if this_ky_rows:
+            save_performance(type_key, ky_clean, ngay, numbers, this_ky_rows)
     except Exception as e:
         print(f"⚠️ performance tracking error: {e}")
 
@@ -955,22 +952,34 @@ async def post_result(type_key):
     if special:
         embed.add_field(name="Đặc biệt" if type_key == "535" else "Power", value=f"`{special:02d}`", inline=True)
 
-    # Thêm phần so sánh nếu có
+    # Thêm phần so sánh nếu có — hiển thị TẤT CẢ nguồn (scheduler, manual, bao...)
+    SOURCE_LABELS = {
+        "scheduler": "🤖 Gợi ý tự động",
+        "manual": "👤 Gợi ý thủ công (/535, /645, /655)",
+    }
     if compare_result:
-        prev_ky, comparisons = compare_result
-        lines = []
-        for i, nums, matched in comparisons:
-            nums_disp = " ".join(f"`{n:02d}`" for n in nums)
-            if matched:
-                matched_disp = " ".join(f"`{n:02d}`" for n in matched)
-                lines.append(f"Bộ {i}: {nums_disp} → ✅ Trúng **{len(matched)}** số: {matched_disp}")
-            else:
-                lines.append(f"Bộ {i}: {nums_disp} → ❌ 0 số")
-        embed.add_field(
-            name=f"📊 So sánh với gợi ý kỳ #{prev_ky}",
-            value="\n".join(lines),
-            inline=False
-        )
+        ky_clean, by_source = compare_result
+        for source, items in by_source.items():
+            label = SOURCE_LABELS.get(source, f"🎯 {source}")
+            lines = []
+            total_matched = 0
+            for nums, matched in items:
+                nums_disp = " ".join(f"`{n:02d}`" for n in nums)
+                if matched:
+                    matched_disp = " ".join(f"`{n:02d}`" for n in matched)
+                    lines.append(f"✅ {nums_disp} → trúng **{len(matched)}**: {matched_disp}")
+                    total_matched += len(matched)
+                else:
+                    lines.append(f"❌ {nums_disp} → 0 số")
+            # Discord field value giới hạn 1024 ký tự, cắt nếu cần
+            value = "\n".join(lines)
+            if len(value) > 1000:
+                value = value[:1000] + "\n... (còn nữa)"
+            embed.add_field(
+                name=f"📊 {label} ({len(items)} bộ)",
+                value=value,
+                inline=False
+            )
 
     embed.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed)
