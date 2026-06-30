@@ -545,31 +545,33 @@ def parse_result_list(result_list, cfg):
         pass
     return None, None
 
-def save_suggestions(type_key, ky, ngay, time_str, all_sets):
-    """Lưu 5 bộ số gợi ý vào sheet 'suggestions'"""
+def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler"):
+    """Lưu bộ số gợi ý vào sheet 'suggestions'
+    source: 'scheduler' (tự động sau kỳ xổ) hoặc 'manual' (user gọi lệnh)
+    """
     try:
         wb = get_sheet()
         ws = wb.worksheet("suggestions")
-        # Header nếu chưa có
         existing = ws.get_all_values()
         if not existing:
-            ws.append_row(["type_key", "ky", "date", "time", "bo1", "bo2", "bo3", "bo4", "bo5"])
-        # Kiểm tra kỳ đã lưu chưa
-        if any(str(row[1]).strip() == str(ky).strip() and str(row[0]).strip() == type_key
-               for row in existing[1:] if len(row) >= 2):
-            print(f"⚠️ Suggestions kỳ {ky} đã tồn tại")
-            return
-        row = [type_key, ky, ngay, time_str]
-        for nums, sp in all_sets[:5]:
+            ws.append_row(["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"])
+            existing = [["type_key", "ky", "date", "time", "source", "bo1", "bo2", "bo3", "bo4", "bo5"]]
+        if source == "scheduler":
+            if any(str(row[1]).strip() == str(ky).strip()
+                   and str(row[0]).strip() == type_key
+                   and len(row) > 4 and row[4] == "scheduler"
+                   for row in existing[1:] if len(row) >= 2):
+                print(f"⚠️ Suggestions scheduler kỳ {ky} đã tồn tại")
+                return
+        row = [type_key, ky, ngay, time_str, source]
+        sets_to_save = all_sets[:5] if source == "scheduler" else all_sets
+        for nums, sp in sets_to_save:
             nums_str = " ".join(f"{n:02d}" for n in nums)
             if sp:
                 nums_str += f" | {sp:02d}"
             row.append(nums_str)
-        # Pad nếu < 5 bộ
-        while len(row) < 9:
-            row.append("")
         ws.append_row(row)
-        print(f"✅ Saved suggestions kỳ {ky}")
+        print(f"✅ Saved suggestions kỳ {ky} ({source})")
     except Exception as e:
         print(f"⚠️ save_suggestions error: {e}")
 
@@ -613,6 +615,64 @@ def compare_with_suggestions(type_key, ky, result_nums, result_special):
         return prev_ky, comparisons
     except Exception as e:
         print(f"⚠️ compare_with_suggestions error: {e}")
+        return None
+
+def save_performance(type_key, ky, ngay, result_nums, suggestions_rows):
+    """Tính điểm và lưu performance sau mỗi kỳ xổ"""
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet("performance")
+        existing = ws.get_all_values()
+        if not existing:
+            ws.append_row(["date", "type_key", "ky", "source", "avg_matched", "total_sets", "details"])
+
+        result_set = set(result_nums)
+        by_source = {}
+        for row in suggestions_rows:
+            if len(row) < 6: continue
+            src = row[4] if len(row) > 4 else "unknown"
+            if src not in by_source:
+                by_source[src] = []
+            for col in row[5:]:
+                if not col.strip(): continue
+                nums = [int(x) for x in col.split("|")[0].split() if x.isdigit()]
+                if nums:
+                    matched = len(set(nums) & result_set)
+                    by_source[src].append(matched)
+
+        for src, scores in by_source.items():
+            if not scores: continue
+            avg = round(sum(scores) / len(scores), 2)
+            details = ",".join(str(s) for s in scores)
+            ws.append_row([ngay, type_key, ky, src, avg, len(scores), details])
+            print(f"✅ Performance {type_key} kỳ {ky} ({src}): avg={avg} ({len(scores)} bộ)")
+    except Exception as e:
+        print(f"⚠️ save_performance error: {e}")
+
+def get_performance_weights(type_key):
+    """Đọc performance 30 ngày gần nhất, tính weight tối ưu cho model"""
+    try:
+        wb = get_sheet()
+        ws = wb.worksheet("performance")
+        rows = ws.get_all_values()
+        if len(rows) <= 1:
+            return None
+        scheduler_scores = []
+        for row in rows[1:]:
+            if len(row) < 6: continue
+            if row[1] != type_key: continue
+            if row[3] != "scheduler": continue
+            try:
+                avg = float(row[4])
+                scheduler_scores.append(avg)
+            except: continue
+        if len(scheduler_scores) < 5:
+            return None
+        overall_avg = sum(scheduler_scores) / len(scheduler_scores)
+        print(f"📊 {type_key}: avg_matched={round(overall_avg, 2)} over {len(scheduler_scores)} kỳ")
+        return {"avg_matched": overall_avg, "n_samples": len(scheduler_scores)}
+    except Exception as e:
+        print(f"⚠️ get_performance_weights error: {e}")
         return None
 
 def fetch_latest_result(type_key):
@@ -703,6 +763,15 @@ async def run_pick(interaction, type_key, so_luong):
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
+
+        try:
+            ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+            time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
+            ky_latest, _, _ = fetch_latest_result(type_key)
+            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
+            save_suggestions(type_key, ky_save, ngay_str, time_str_m, all_sets, source="manual")
+        except Exception as e2:
+            print(f"⚠️ save manual suggestions: {e2}")
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
 
@@ -756,6 +825,17 @@ async def run_bao535(interaction, bao_key, so_bo):
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
+
+        try:
+            ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+            time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
+            ky_latest, _, _ = fetch_latest_result("535")
+            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
+            save_suggestions("535", ky_save, ngay_str, time_str_m,
+                             [(nums, None) for nums in seen],
+                             source=f"manual_bao535_{bao_key}")
+        except Exception as e2:
+            print(f"⚠️ save bao535 suggestions: {e2}")
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {str(e)}")
 
@@ -794,6 +874,17 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
         await interaction.followup.send(embed=embed, view=make_button(sms))
+
+        try:
+            ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
+            time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
+            ky_latest, _, _ = fetch_latest_result(type_key)
+            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
+            save_suggestions(type_key, ky_save, ngay_str, time_str_m,
+                             [(nums, None) for nums in seen],
+                             source=f"manual_bao{type_key}_{bao_key}")
+        except Exception as e2:
+            print(f"⚠️ save bao suggestions: {e2}")
     except Exception as e:
         await interaction.followup.send(f"❌ Lỗi: {str(e)}")
 
@@ -842,6 +933,21 @@ async def post_result(type_key):
 
     # So sánh với gợi ý kỳ trước
     compare_result = compare_with_suggestions(type_key, ky, numbers, special)
+
+    # Lấy suggestions của kỳ trước để tính performance
+    try:
+        wb_perf = get_sheet()
+        ws_perf = wb_perf.worksheet("suggestions")
+        all_rows = ws_perf.get_all_values()
+        prev_suggestions = [r for r in all_rows[1:] if len(r) >= 2
+                           and r[0] == type_key and r[1].strip() != str(ky).strip()]
+        if prev_suggestions:
+            latest_prev_ky = sorted(prev_suggestions, key=lambda r: r[1], reverse=True)[0][1]
+            prev_ky_rows = [r for r in prev_suggestions if r[1].strip() == latest_prev_ky.strip()]
+            if prev_ky_rows:
+                save_performance(type_key, ky, ngay, numbers, prev_ky_rows)
+    except Exception as e:
+        print(f"⚠️ performance tracking error: {e}")
 
     embed = discord.Embed(title=f"🎰 Kết quả {cfg['label']} — {ngay}", color=0xE74C3C)
     embed.add_field(name="Kỳ", value=f"**{ky}**", inline=True)
@@ -898,7 +1004,7 @@ async def post_result(type_key):
 
     # Lưu gợi ý vào Sheets để so sánh kỳ sau
     time_str = datetime.now(VN_TZ).strftime("%H:%M")
-    save_suggestions(type_key, ky, ngay, time_str, all_sets)
+    save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
 
 async def scheduler():
     print("⏰ Scheduler started")
