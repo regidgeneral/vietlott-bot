@@ -54,11 +54,11 @@ def backfill_performance():
         if not rows:
             results_by_type[type_key] = {}
             continue
-        # Detect header
-        has_header = rows[0] and not rows[0][0].strip()[:2].isdigit() if rows[0] and rows[0][0] else True
-        # Cách an toàn hơn: nếu cột B (index 1) không phải toàn số thì có header
-        has_header = len(rows[0]) > 1 and not rows[0][1].strip().isdigit()
+        # Detect header: cột A chứa "Ngày" (text) thay vì ngày dạng dd/mm/yyyy
+        first_cell = rows[0][0].strip() if rows[0] else ""
+        has_header = first_cell.lower() in ("ngày", "ngay", "date")
         result_data = rows[1:] if has_header else rows
+        print(f"  {type_key}: has_header={has_header}, first_cell='{first_cell}'")
         k = 5 if type_key == "535" else 6
         ky_to_result = {}
         for row in result_data:
