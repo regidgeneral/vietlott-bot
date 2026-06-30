@@ -19,14 +19,19 @@ def get_sheet():
 def backfill_performance():
     wb = get_sheet()
 
-    # Đọc suggestions
+    # Đọc suggestions (sheet này KHÔNG có header, data bắt đầu từ row 1)
     ws_sugg = wb.worksheet("suggestions")
     sugg_rows = ws_sugg.get_all_values()
-    if len(sugg_rows) <= 1:
+    if not sugg_rows:
         print("Khong co data suggestions")
         return
-    sugg_header = sugg_rows[0]
-    sugg_data = sugg_rows[1:]
+    # Detect header: nếu row đầu có "type_key" ở cột A thì có header, ngược lại không
+    if sugg_rows[0] and sugg_rows[0][0].strip().lower() == "type_key":
+        sugg_data = sugg_rows[1:]
+        print("  Phat hien co header, bo qua row 1")
+    else:
+        sugg_data = sugg_rows
+        print("  Khong co header, dung toan bo data")
 
     # Đọc performance hiện có để tránh duplicate
     ws_perf = wb.worksheet("performance")
@@ -34,8 +39,10 @@ def backfill_performance():
     if not perf_rows:
         ws_perf.append_row(["date", "type_key", "ky", "source", "avg_matched", "total_sets", "details"])
         perf_rows = [["date", "type_key", "ky", "source", "avg_matched", "total_sets", "details"]]
+    has_perf_header = perf_rows[0] and perf_rows[0][0].strip().lower() == "date"
+    perf_data = perf_rows[1:] if has_perf_header else perf_rows
     existing_keys = set()
-    for r in perf_rows[1:]:
+    for r in perf_data:
         if len(r) >= 4:
             existing_keys.add((r[1], r[2].strip(), r[3]))  # (type_key, ky, source)
 
@@ -44,12 +51,17 @@ def backfill_performance():
     for type_key in ["535", "645", "655"]:
         ws = wb.worksheet(type_key)
         rows = ws.get_all_values()
-        if len(rows) <= 1:
+        if not rows:
             results_by_type[type_key] = {}
             continue
+        # Detect header
+        has_header = rows[0] and not rows[0][0].strip()[:2].isdigit() if rows[0] and rows[0][0] else True
+        # Cách an toàn hơn: nếu cột B (index 1) không phải toàn số thì có header
+        has_header = len(rows[0]) > 1 and not rows[0][1].strip().isdigit()
+        result_data = rows[1:] if has_header else rows
         k = 5 if type_key == "535" else 6
         ky_to_result = {}
-        for row in rows[1:]:
+        for row in result_data:
             if len(row) < 2 + k:
                 continue
             ky = row[1].strip().zfill(5)
