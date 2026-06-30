@@ -88,9 +88,14 @@ def backfill_performance():
         grouped.setdefault(key, []).append((date_str, row))
 
     written = 0
+    debug_count = 0
     for (type_key, ky), entries in grouped.items():
         result_nums = results_by_type.get(type_key, {}).get(ky)
         if not result_nums:
+            if debug_count < 5:
+                sample_keys = list(results_by_type.get(type_key, {}).keys())[:3]
+                print(f"  [DEBUG] Khong tim thay ky='{ky}' (type={type_key}) trong ket qua. Sample keys: {sample_keys}")
+                debug_count += 1
             continue  # chua co ket qua thuc te cho ky nay
 
         result_set = set(result_nums)
