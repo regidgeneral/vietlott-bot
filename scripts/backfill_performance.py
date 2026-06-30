@@ -48,6 +48,7 @@ def backfill_performance():
 
     # Đọc kết quả thực tế từ 3 sheet 535/645/655
     results_by_type = {}
+    results_by_date = {}
     for type_key in ["535", "645", "655"]:
         ws = wb.worksheet(type_key)
         rows = ws.get_all_values()
@@ -61,18 +62,24 @@ def backfill_performance():
         print(f"  {type_key}: has_header={has_header}, first_cell='{first_cell}'")
         k = 5 if type_key == "535" else 6
         ky_to_result = {}
+        date_to_result = {}
         for row in result_data:
             if len(row) < 2 + k:
                 continue
             ky = row[1].strip().zfill(5)
+            date_str = row[0].strip()  # dd/mm/yyyy
             nums = []
             for i in range(2, 2 + k):
                 if i < len(row) and row[i].strip().isdigit():
                     nums.append(int(row[i]))
             if len(nums) == k:
                 ky_to_result[ky] = nums
+                if date_str:
+                    date_to_result.setdefault(date_str, []).append(nums)
         results_by_type[type_key] = ky_to_result
-        print(f"  Loaded {len(ky_to_result)} ky ket qua cho {type_key}")
+        results_by_date.setdefault(type_key, {})
+        results_by_date[type_key] = date_to_result
+        print(f"  Loaded {len(ky_to_result)} ky ket qua cho {type_key} ({len(date_to_result)} ngay)")
 
     # Group suggestions theo (type_key, ky)
     grouped = {}
@@ -90,16 +97,28 @@ def backfill_performance():
     written = 0
     debug_count = 0
     for (type_key, ky), entries in grouped.items():
+        ngay = entries[0][0]  # dd/mm/yyyy từ cột date của suggestions
+
+        # Thử match theo kỳ trước (chính xác hơn)
         result_nums = results_by_type.get(type_key, {}).get(ky)
+
+        # Nếu không có, thử match theo ngày (fallback cho data cũ)
+        if not result_nums and ngay:
+            date_matches = results_by_date.get(type_key, {}).get(ngay, [])
+            if len(date_matches) == 1:
+                result_nums = date_matches[0]
+            elif len(date_matches) > 1:
+                # Nhiều kỳ trong ngày (vd 535 xổ 2 lần/ngày) - không chắc cái nào, bỏ qua
+                pass
+
         if not result_nums:
             if debug_count < 5:
                 sample_keys = list(results_by_type.get(type_key, {}).keys())[:3]
-                print(f"  [DEBUG] Khong tim thay ky='{ky}' (type={type_key}) trong ket qua. Sample keys: {sample_keys}")
+                print(f"  [DEBUG] Khong tim thay ky='{ky}' ngay='{ngay}' (type={type_key}). Sample keys: {sample_keys}")
                 debug_count += 1
-            continue  # chua co ket qua thuc te cho ky nay
+            continue
 
         result_set = set(result_nums)
-        ngay = entries[0][0]
 
         # Group theo source trong cung 1 ky
         by_source = {}
