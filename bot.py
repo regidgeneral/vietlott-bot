@@ -1003,8 +1003,15 @@ async def post_result(type_key):
     await channel.send(embed=embed2, view=make_button(sms))
 
     # Lưu gợi ý vào Sheets để so sánh kỳ sau
+    # QUAN TRỌNG: all_sets là gợi ý cho KỲ TIẾP THEO, không phải kỳ vừa công bố (ky)
+    # Tính kỳ tiếp theo = ky + 1 (giữ định dạng zero-padded)
     time_str = datetime.now(VN_TZ).strftime("%H:%M")
-    save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
+    try:
+        ky_num = int(ky.split(" ")[0])
+        next_ky = str(ky_num + 1).zfill(5)
+    except Exception:
+        next_ky = ky  # fallback nếu parse lỗi
+    save_suggestions(type_key, next_ky, ngay, time_str, all_sets, source="scheduler")
 
 async def scheduler():
     print("⏰ Scheduler started")
