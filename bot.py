@@ -673,6 +673,19 @@ def get_performance_weights(type_key):
         print(f"⚠️ get_performance_weights error: {e}")
         return None
 
+def get_jackpot_535():
+    """Đọc jackpot 535 hiện tại từ Worker. Trả về int (đồng) hoặc None."""
+    try:
+        r = requests.get(f"{WORKER_URL}/?type=535",
+                        headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            jp = r.json().get("result", {}).get("jackpot")
+            if jp and str(jp).isdigit():
+                return int(jp)
+    except Exception as e:
+        print(f"⚠️ get_jackpot_535 error: {e}")
+    return None
+
 def fetch_latest_result(type_key):
     """
     Ưu tiên fetch từ Cloudflare Worker (realtime).
@@ -983,6 +996,25 @@ async def post_result(type_key):
 
     embed.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed)
+
+    # Alert kỳ Chia giải Độc Đắc (chỉ 535): jackpot > 12 tỷ → kỳ 21h ngày mai chia giải
+    if type_key == "535":
+        jackpot = get_jackpot_535()
+        if jackpot and jackpot > 12_000_000_000:
+            jp_ty = jackpot / 1_000_000_000
+            alert = discord.Embed(
+                title="🔥 SẮP CÓ KỲ CHIA GIẢI ĐỘC ĐẮC!",
+                description=(
+                    f"Jackpot Lotto 5/35 hiện tại: **{jp_ty:.2f} tỷ** (vượt mốc 12 tỷ)\n\n"
+                    f"Nếu kỳ tối nay không ai trúng Độc Đắc, **kỳ 21:00 ngày mai** "
+                    f"sẽ là kỳ **CHIA GIẢI** — toàn bộ jackpot chia cho giải Nhất → Năm.\n"
+                    f"💡 Cùng xác suất trúng nhưng giá trị giải cao gấp nhiều lần — "
+                    f"nếu định đánh thì đây là kỳ đáng đánh nhất."
+                ),
+                color=0xF39C12
+            )
+            alert.timestamp = datetime.now(timezone.utc)
+            await channel.send(embed=alert)
 
     # Gợi ý 5 bộ số kỳ tiếp
     await asyncio.sleep(2)
