@@ -5,7 +5,9 @@ import requests
 import random
 import re
 import os
+import time
 import urllib.parse
+from bs4 import BeautifulSoup
 from discord import app_commands
 from datetime import datetime, date, timezone
 import pytz
@@ -29,7 +31,13 @@ CONFIGS = {
             "jsonl_url": "https://raw.githubusercontent.com/vietvudanh/vietlott-data/master/data/power655.jsonl"},
 }
 
-GIOI_HAN_NGAY = {"535": 1_000_000, "645": 2_100_000, "655": 2_100_000}
+GIOI_HAN_NGAY = {"535": 2_500_000, "645": 2_100_000, "655": 2_100_000}
+
+# Giới hạn MỀM: số bộ tối đa cho MỖI LỆNH (hạn mức ngày ở trên vẫn giữ nguyên).
+# Hạn mức 2,5tr cho phép bd2 tới 125 bộ, nhưng khi đó nội dung SMS dài 2885 ký tự
+# (~19 đoạn SMS) và URL 4678 ký tự — TinyURL dễ từ chối, người dùng mất nút bấm.
+# Cap 50 kéo ca xấu nhất về 1610 ký tự (~11 đoạn). Muốn đặt thêm thì gọi lệnh nữa.
+SO_BO_MOI_LENH = 50
 
 BAO_535 = {
     "bc4": {"label": "BC4 – Bao 4 số chính",    "gia": 310000, "type": "bc", "n_main": 4},
@@ -74,21 +82,28 @@ _model_cache = {}
 
 MODEL_BASE_URL = "https://raw.githubusercontent.com/regidgeneral/vietlott-bot/main/models/model_{}.json"
 
+MODEL_TTL = 6 * 3600  # model retrain hàng tuần; bot chạy 24/7 nên phải có hạn cache
+
 def load_model(type_key):
-    """Load model JSON từ GitHub, cache trong memory"""
-    if type_key in _model_cache:
-        return _model_cache[type_key]
+    """Load model JSON từ GitHub, cache trong memory (hết hạn sau MODEL_TTL).
+
+    Trước đây cache vĩnh viễn: bot chạy liên tục vài tháng thì mãi mãi dùng model
+    của lần khởi động đầu, mọi lần retrain hàng tuần đều vô nghĩa.
+    """
+    cached = _model_cache.get(type_key)
+    if cached and (time.time() - cached[1]) < MODEL_TTL:
+        return cached[0]
     try:
         url = MODEL_BASE_URL.format(type_key)
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         if r.status_code == 200:
             model = r.json()
-            _model_cache[type_key] = model
+            _model_cache[type_key] = (model, time.time())
             print(f"✅ Loaded model_{type_key} (n_draws={model.get('n_draws')})")
             return model
     except Exception as e:
         print(f"⚠️ load_model {type_key}: {e}")
-    return None
+    return cached[0] if cached else None  # hết hạn nhưng tải lỗi → dùng tạm bản cũ
 
 # ==========================================
 # DATA & ANALYSIS
@@ -113,124 +128,98 @@ def parse_jsonl_line(line, cfg):
         return None, None
     return nums, special
 
-def fetch_jsonl(cfg):
+def fetch_jsonl_draws(cfg):
+    """[(ky, ngay|None, nums, sp)] từ JSONL GitHub. Cache theo type."""
     key = cfg["sms_prefix"]
     if key in _cache:
         return _cache[key]
+    draws = []
     try:
         r = requests.get(cfg["jsonl_url"], headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         if r.status_code != 200:
-            return "", [], []
-        text = r.text
-        all_nums, all_sp = [], []
-        for line in text.strip().split("\n"):
+            return draws
+        for line in r.text.strip().split("\n"):
             line = line.strip()
             if not line: continue
             try:
                 nums, sp = parse_jsonl_line(line, cfg)
-                if nums:
-                    all_nums.extend(nums)
-                    if cfg.get("has_special") and sp is not None:
-                        all_sp.append(sp)
+                if not nums: continue
+                data = json.loads(line)
+                try:
+                    ngay = date.fromisoformat(data.get("date", ""))
+                except ValueError:
+                    ngay = None
+                draws.append((int(data["id"]), ngay, nums, sp))
             except: continue
-        _cache[key] = (text, all_nums, all_sp)
-        return text, all_nums, all_sp
+        _cache[key] = draws
     except Exception as e:
         print(f"❌ Fetch error {key}: {e}")
-        return "", [], []
+    return draws
 
-def load_from_sheets(type_key):
-    """Load kết quả từ Google Sheets (data mình tự lưu)"""
+def load_sheet_draws(type_key):
+    """[(ky, ngay|None, nums, sp)] từ Google Sheets. Chỉ đọc sheet MỘT lần."""
     cfg = CONFIGS[type_key]
+    k = cfg["k"]
+    draws = []
     try:
-        wb = get_sheet()
-        ws = wb.worksheet(type_key)
-        rows = ws.get_all_values()
-        if len(rows) <= 1:
-            return [], [], []
-
-        all_nums, all_sp, all_dates = [], [], []
-        k = cfg["k"]
+        rows = get_sheet().worksheet(type_key).get_all_values()
         for row in rows[1:]:  # bỏ header
             try:
-                date_str = row[0] if row else ""
-                nums = [int(row[i]) for i in range(2, 2 + k) if i < len(row) and row[i].strip().isdigit()]
-                if len(nums) == k:
-                    all_nums.extend(nums)
-                    all_dates.append(date_str)
-                    if cfg.get("has_special") and len(row) > 2 + k:
-                        sp = row[2 + k].strip()
-                        if sp.isdigit():
-                            all_sp.append(int(sp))
+                ky = int(str(row[1]).split(" ")[0])
+                nums = [int(row[i]) for i in range(2, 2 + k)
+                        if i < len(row) and row[i].strip().isdigit()]
+                if len(nums) != k:
+                    continue
+                ngay = None
+                ds = row[0].strip()
+                if len(ds) == 10:
+                    d, m, y = ds.split("/")
+                    ngay = date(int(y), int(m), int(d))
+                sp = None
+                if cfg.get("has_special") and len(row) > 2 + k and row[2 + k].strip().isdigit():
+                    sp = int(row[2 + k])
+                draws.append((ky, ngay, nums, sp))
             except:
                 continue
-        return all_nums, all_sp, all_dates
     except Exception as e:
         print(f"⚠️ Khong doc duoc Sheets {type_key}: {e}")
-        return [], [], []
-
-def compute_days_since_from_sheets(type_key):
-    """Tính days since từ Google Sheets (chính xác hơn vì có ngày)"""
-    cfg = CONFIGS[type_key]
-    today = date.today()
-    try:
-        wb = get_sheet()
-        ws = wb.worksheet(type_key)
-        rows = ws.get_all_values()
-        if len(rows) <= 1:
-            return {}
-
-        last_seen = {}
-        k = cfg["k"]
-        for row in rows[1:]:
-            try:
-                date_str = row[0].strip()  # dd/mm/yyyy
-                if not date_str or len(date_str) != 10:
-                    continue
-                d, m, y = date_str.split("/")
-                draw_date = date(int(y), int(m), int(d))
-                nums = [int(row[i]) for i in range(2, 2 + k) if i < len(row) and row[i].strip().isdigit()]
-                for n in nums:
-                    if n not in last_seen or draw_date > last_seen[n]:
-                        last_seen[n] = draw_date
-            except:
-                continue
-
-        return {n: (today - last_seen[n]).days if n in last_seen else 9999
-                for n in range(1, cfg["n"] + 1)}
-    except Exception as e:
-        print(f"⚠️ Khong tinh duoc days_since tu Sheets: {e}")
-        return {}
+    return draws
 
 def get_combined_data(type_key):
-    """
-    Kết hợp data từ 2 nguồn:
-    1. GitHub vietvudanh → lịch sử cũ (nhiều kỳ)
-    2. Google Sheets → lịch sử mới bot tự cập nhật (chính xác ngày hơn)
+    """Gộp JSONL + Google Sheets, KHỬ TRÙNG theo số kỳ.
+
+    Trước đây nối thẳng hai list nên hầu như mọi kỳ bị đếm hai lần (6/45: 1356
+    trong tổng 1362 kỳ trùng nhau) — embed báo '2718 kỳ lịch sử' trong khi thực
+    tế chỉ có 1362. Sheets ghi đè JSONL vì đó là bản bot tự lưu, khớp ngày hơn.
     Trả về: all_nums, all_sp, days_since, pair_freq
     """
     cfg = CONFIGS[type_key]
+    theo_ky = {}
+    for ky, ngay, nums, sp in fetch_jsonl_draws(cfg):
+        theo_ky[ky] = (ngay, nums, sp)
+    n_jsonl = len(theo_ky)
+    for ky, ngay, nums, sp in load_sheet_draws(type_key):
+        theo_ky[ky] = (ngay, nums, sp)
 
-    # Lấy data từ Google Sheets
-    sheets_nums, sheets_sp, _ = load_from_sheets(type_key)
+    all_nums, all_sp, lan_cuoi = [], [], {}
+    for ky in sorted(theo_ky):
+        ngay, nums, sp = theo_ky[ky]
+        all_nums.extend(nums)
+        if cfg.get("has_special") and sp is not None:
+            all_sp.append(sp)
+        if ngay:
+            for n in nums:
+                if n not in lan_cuoi or ngay > lan_cuoi[n]:
+                    lan_cuoi[n] = ngay
 
-    # Lấy data từ GitHub JSONL
-    jsonl_text, jsonl_nums, jsonl_sp = fetch_jsonl(cfg)
-
-    if sheets_nums:
-        days_since = compute_days_since_from_sheets(type_key)
-        all_nums = jsonl_nums + sheets_nums
-        all_sp   = jsonl_sp + sheets_sp
-        print(f"✅ {type_key}: {len(jsonl_nums)//cfg['k']} ky JSONL + {len(sheets_nums)//cfg['k']} ky Sheets")
-    else:
-        all_nums = jsonl_nums
-        all_sp   = jsonl_sp
-        days_since = compute_days_since(jsonl_text, cfg) if jsonl_text else {}
-        print(f"⚠️ {type_key}: Chi dung JSONL ({len(jsonl_nums)//cfg['k']} ky)")
-
-    # Tính pair frequency từ toàn bộ lịch sử
+    # date.today() lấy theo giờ máy chủ (Railway chạy UTC) → lệch 1 ngày với VN
+    hom_nay = datetime.now(VN_TZ).date()
+    days_since = {n: (hom_nay - lan_cuoi[n]).days if n in lan_cuoi else 9999
+                  for n in range(1, cfg["n"] + 1)}
     pair_freq = compute_pair_freq(all_nums, cfg["k"]) if all_nums else {}
 
+    print(f"✅ {type_key}: {len(theo_ky)} kỳ duy nhất "
+          f"({n_jsonl} JSONL + {len(theo_ky) - n_jsonl} kỳ chỉ có ở Sheets)")
     return all_nums, all_sp, days_since, pair_freq
 
 def compute_freq(numbers, n):
@@ -238,24 +227,6 @@ def compute_freq(numbers, n):
     for num in numbers:
         if num in freq: freq[num] += 1
     return freq
-
-def compute_days_since(jsonl_text, cfg):
-    today = date.today()
-    last_seen = {}
-    for line in jsonl_text.strip().split("\n"):
-        line = line.strip()
-        if not line: continue
-        try:
-            data = json.loads(line)
-            draw_date = date.fromisoformat(data.get("date", ""))
-            nums, _ = parse_jsonl_line(line, cfg)
-            if nums:
-                for n in nums:
-                    if n not in last_seen or draw_date > last_seen[n]:
-                        last_seen[n] = draw_date
-        except: continue
-    return {n: (today - last_seen[n]).days if n in last_seen else 9999
-            for n in range(1, cfg["n"] + 1)}
 
 def compute_pair_freq(all_numbers, k):
     """
@@ -427,23 +398,64 @@ def weighted_pick(pool, weights, count, exclude=None):
 
 
 
+FIELD_MAX, EMBED_BUDGET = 1024, 5500
+
 def add_fields_chunked(embed, lines, chunk_size=10):
-    """Chia danh sách bộ số thành nhiều field, mỗi field tối đa chunk_size bộ"""
-    for i in range(0, len(lines), chunk_size):
-        chunk = lines[i:i+chunk_size]
-        name = 'Bộ số' if i == 0 else f'Bộ số (tiếp)'
-        embed.add_field(name=name, value='\n'.join(chunk), inline=False)
+    """Chia bộ số thành nhiều field, gom theo ĐỘ DÀI THẬT chứ không chunk cứng.
+
+    Chunk cứng 10 dòng/field rất sát giới hạn: bd12 (20 bộ) cho field 1019/1024,
+    và sau khi hạn mức 535 lên 2,5tr thì bd2 (125 bộ) cho embed 6754/6000 → vỡ.
+    """
+    da_dung = len(embed.title or "") + sum(
+        len(f.name or "") + len(f.value or "") for f in embed.fields)
+    i, dau = 0, True
+    while i < len(lines):
+        buf = []
+        while i < len(lines) and len(buf) < chunk_size:
+            if len("\n".join(buf + [lines[i]])) > FIELD_MAX - 24:
+                break
+            buf.append(lines[i]); i += 1
+        if not buf:  # một dòng đơn lẻ đã dài hơn cả field
+            buf = [lines[i][:FIELD_MAX - 24]]; i += 1
+        name, value = ("Bộ số" if dau else "Bộ số (tiếp)"), "\n".join(buf)
+        if da_dung + len(name) + len(value) > EMBED_BUDGET or len(embed.fields) >= 23:
+            embed.add_field(
+                name="…",
+                value=f"Còn {len(lines) - i + len(buf)} bộ nữa — xem đầy đủ trong SMS",
+                inline=False)
+            return
+        da_dung += len(name) + len(value)
+        embed.add_field(name=name, value=value, inline=False)
+        dau = False
 
 def fmt_gia(gia):
     return f"{gia:,}d".replace(",", ".")
 
 def max_bo(gia, type_key):
+    """Số bộ tối đa theo HẠN MỨC NGÀY (tiền)."""
     return max(1, GIOI_HAN_NGAY[type_key] // gia)
+
+def max_bo_moi_lenh(gia, type_key):
+    """Số bộ tối đa cho MỘT LỆNH = hạn mức ngày, chặn thêm bởi giới hạn mềm."""
+    return min(max_bo(gia, type_key), SO_BO_MOI_LENH)
+
+def nhan_bao(label, gia, type_key):
+    """Nhãn choice: nêu rõ giới hạn mỗi lệnh, và hạn mức ngày nếu hai số khác nhau."""
+    ngay, lenh = max_bo(gia, type_key), max_bo_moi_lenh(gia, type_key)
+    if lenh < ngay:
+        return f"{label} ({fmt_gia(gia)}) – max {lenh} bộ/lệnh (ngày: {ngay})"
+    return f"{label} ({fmt_gia(gia)}) – max {lenh} bộ"
 
 def make_sms_link(sms_text):
     return f"https://vietlott-sms.netlify.app/?body={urllib.parse.quote(sms_text)}"
 
 def shorten_url(url):
+    """Trả None nếu không rút gọn được.
+
+    Trước đây trả url[:512] — cắt giữa chuỗi query tạo ra link HỎNG mà người dùng
+    không biết. 14/25 loại bao có URL > 512 (bd2 50 bộ = 1903 ký tự) nên nhánh này
+    chạy thật, không phải trường hợp hiếm.
+    """
     if len(url) <= 512:
         return url
     try:
@@ -455,10 +467,15 @@ def shorten_url(url):
             return r.text.strip()
     except Exception as e:
         print(f"⚠️ TinyURL lỗi: {e}")
-    return url[:512]
+    return None
 
-def make_button(sms_text):
-    url = shorten_url(make_sms_link(sms_text))
+async def make_button(sms_text):
+    """shorten_url gọi mạng nên đẩy sang thread riêng, tránh chặn event loop.
+    View phải dựng trên event loop nên không gộp cả hàm vào to_thread được."""
+    url = await asyncio.to_thread(shorten_url, make_sms_link(sms_text))
+    if not url:
+        print("⚠️ Không rút gọn được URL — bỏ nút SMS (thà không có nút còn hơn nút hỏng)")
+        return discord.utils.MISSING
     view = discord.ui.View()
     view.add_item(discord.ui.Button(
         label="📱 Mở SMS → gửi 9969",
@@ -528,6 +545,64 @@ def save_result(type_key, ngay, ky, numbers, special=None):
 
 WORKER_URL = "https://vietlott-proxy.regidgeneral.workers.dev"
 
+# Nguồn realtime chính. Worker chỉ còn là dự phòng: từ khoảng 09/2026 nó trả
+# {"error":"Parse failed or no data","raw":""} nên bot mất luôn kết quả trong ngày
+# (JSONL của vietvudanh chỉ cập nhật ~00:01 hôm sau).
+MINHCHINH_URLS = {
+    "535": "https://www.minhchinh.com/xo-so-dien-toan-lotto-535.html",
+    "645": "https://www.minhchinh.com/xo-so-dien-toan-mega-645.html",
+    "655": "https://www.minhchinh.com/xo-so-dien-toan-power-655.html",
+}
+MINHCHINH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "vi-VN,vi;q=0.9",
+    "Referer": "https://www.minhchinh.com/",
+}
+# 535 xổ 2 lần/ngày nên có giờ: "kỳ #874 ngày 08/09/2026 - Lúc 21:00 04 07 14 16 23 10"
+# 645/655 xổ 1 lần/ngày, KHÔNG có phần "- Lúc": "kỳ #1559 ngày 06/09/2026 09 14 22 26 27 40"
+KY_PATTERN = re.compile(
+    r'kỳ\s+#(\d+)\s+ngày\s+(\d{2}/\d{2}/\d{4})\s*(?:-\s*Lúc\s+(\d+:\d+))?\s+((?:\d+\s*){4,8})',
+    re.IGNORECASE
+)
+JACKPOT_PATTERN = re.compile(r'Giá trị Độc Đắc\s+([\d.,]+)', re.IGNORECASE)
+# Số lượng số cần lấy: 535 = 5 chính + ĐB, 645 = 6 chính, 655 = 6 chính + Power
+NUM_COUNT = {"535": 6, "645": 6, "655": 7}
+
+def _minhchinh_text(type_key):
+    r = requests.get(MINHCHINH_URLS[type_key], headers=MINHCHINH_HEADERS, timeout=15)
+    if r.status_code != 200:
+        return None
+    return BeautifulSoup(r.text, "html.parser").get_text(" ", strip=True)
+
+def fetch_from_minhchinh(type_key):
+    """Lấy kỳ mới nhất từ minhchinh.com. Trả về (ky_str, nums, special)."""
+    cfg = CONFIGS[type_key]
+    try:
+        text = _minhchinh_text(type_key)
+        if not text:
+            return None, None, None
+        need = NUM_COUNT[type_key]
+        best = None
+        for m in KY_PATTERN.finditer(text):
+            nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
+            if len(nums_raw) < need:
+                continue
+            ky = int(m.group(1))
+            if best is None or ky > best[0]:
+                best = (ky, m.group(2), nums_raw[:need])
+        if not best:
+            return None, None, None
+        ky, d_str, nums_raw = best
+        nums, special = parse_result_list(nums_raw, cfg)
+        if not nums:
+            return None, None, None
+        print(f"✅ {type_key}: minhchinh kỳ {ky} ({d_str})")
+        return f"{str(ky).zfill(5)} ({d_str})", nums, special
+    except Exception as e:
+        print(f"⚠️ minhchinh fetch error {type_key}: {e}")
+    return None, None, None
+
 def parse_result_list(result_list, cfg):
     """Parse list số từ today.json thành (nums, special)"""
     key = cfg["sms_prefix"]
@@ -544,6 +619,8 @@ def parse_result_list(result_list, cfg):
     except Exception:
         pass
     return None, None
+
+BO_MOI_DONG = 30  # sheet 'suggestions' rộng 35 cột, 5 cột đầu là metadata
 
 def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler"):
     """Lưu bộ số gợi ý vào sheet 'suggestions'
@@ -563,15 +640,20 @@ def save_suggestions(type_key, ky, ngay, time_str, all_sets, source="scheduler")
                    for row in existing[1:] if len(row) >= 2):
                 print(f"⚠️ Suggestions scheduler kỳ {ky} đã tồn tại")
                 return
-        row = [type_key, ky, ngay, time_str, source]
         sets_to_save = all_sets[:5] if source == "scheduler" else all_sets
-        for nums, sp in sets_to_save:
-            nums_str = " ".join(f"{n:02d}" for n in nums)
-            if sp:
-                nums_str += f" | {sp:02d}"
-            row.append(nums_str)
-        ws.append_row(row)
-        print(f"✅ Saved suggestions kỳ {ky} ({source})")
+        # Sheet chỉ rộng 35 cột (5 metadata + 30 bộ). /bao535 bd2 sinh tới 50 bộ →
+        # append_row vượt khung, gspread ném lỗi và bị except nuốt → mất gợi ý.
+        # Tách thành nhiều dòng cùng (type_key, ky, source); các hàm đọc đều đã
+        # gộp theo source nên nhiều dòng vẫn cho kết quả đúng.
+        for i in range(0, len(sets_to_save), BO_MOI_DONG):
+            row = [type_key, ky, ngay, time_str, source]
+            for nums, sp in sets_to_save[i:i + BO_MOI_DONG]:
+                nums_str = " ".join(f"{n:02d}" for n in nums)
+                if sp:
+                    nums_str += f" | {sp:02d}"
+                row.append(nums_str)
+            ws.append_row(row)
+        print(f"✅ Saved suggestions kỳ {ky} ({source}, {len(sets_to_save)} bộ)")
     except Exception as e:
         print(f"⚠️ save_suggestions error: {e}")
 
@@ -647,6 +729,32 @@ def save_performance(type_key, ky, ngay, result_nums, suggestions_rows):
     except Exception as e:
         print(f"⚠️ save_performance error: {e}")
 
+def parse_score(s):
+    """Đọc số từ Sheets, chịu được cả '0.8' lẫn '0,8'.
+
+    get_all_values() trả về chuỗi ĐÃ format theo locale của sheet (tiếng Việt
+    dùng dấu phẩy thập phân), nên float('0,8') ném ValueError. Trước đây lỗi
+    này bị nuốt, chỉ các giá trị NGUYÊN lọt qua — mà phần lớn là 1.0 — khiến
+    avg tự tính cao hơn thực tế.
+    """
+    try:
+        return float(str(s).strip().replace(",", "."))
+    except (ValueError, TypeError):
+        return None
+
+def track_performance(type_key, ky, ngay, result_nums):
+    """Đọc suggestions của đúng kỳ này rồi chấm điểm. Blocking — gọi qua to_thread."""
+    try:
+        ky_clean = str(ky).split(" ")[0].strip().zfill(5)
+        rows = get_sheet().worksheet("suggestions").get_all_values()
+        this_ky_rows = [r for r in rows[1:] if len(r) >= 5
+                        and r[0] == type_key
+                        and r[1].strip().split(" ")[0].zfill(5) == ky_clean]
+        if this_ky_rows:
+            save_performance(type_key, ky_clean, ngay, result_nums, this_ky_rows)
+    except Exception as e:
+        print(f"⚠️ performance tracking error: {e}")
+
 def get_performance_weights(type_key):
     """Đọc performance 30 ngày gần nhất, tính weight tối ưu cho model"""
     try:
@@ -660,10 +768,9 @@ def get_performance_weights(type_key):
             if len(row) < 6: continue
             if row[1] != type_key: continue
             if row[3] != "scheduler": continue
-            try:
-                avg = float(row[4])
+            avg = parse_score(row[4])
+            if avg is not None:
                 scheduler_scores.append(avg)
-            except: continue
         if len(scheduler_scores) < 5:
             return None
         overall_avg = sum(scheduler_scores) / len(scheduler_scores)
@@ -674,7 +781,17 @@ def get_performance_weights(type_key):
         return None
 
 def get_jackpot_535():
-    """Đọc jackpot 535 hiện tại từ Worker. Trả về int (đồng) hoặc None."""
+    """Đọc jackpot 535 hiện tại. Trả về int (đồng) hoặc None."""
+    try:
+        text = _minhchinh_text("535")
+        if text:
+            m = JACKPOT_PATTERN.search(text)
+            if m:
+                jp = re.sub(r"[.,]", "", m.group(1))
+                if jp.isdigit():
+                    return int(jp)
+    except Exception as e:
+        print(f"⚠️ get_jackpot_535 minhchinh error: {e}")
     try:
         r = requests.get(f"{WORKER_URL}/?type=535",
                         headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -688,10 +805,13 @@ def get_jackpot_535():
 
 def fetch_latest_result(type_key):
     """
-    Ưu tiên fetch từ Cloudflare Worker (realtime).
-    Fallback về JSONL nếu Worker lỗi.
+    Thứ tự nguồn: minhchinh.com (realtime) → Cloudflare Worker → JSONL.
+    JSONL chỉ cập nhật ~00:01 hôm sau nên không dùng được cho kỳ trong ngày.
     """
     cfg = CONFIGS[type_key]
+    ky, nums, special = fetch_from_minhchinh(type_key)
+    if nums:
+        return ky, nums, special
     try:
         r = requests.get(f"{WORKER_URL}/?type={type_key}",
                         headers={"User-Agent": "Mozilla/5.0"},
@@ -731,6 +851,18 @@ def fetch_latest_result(type_key):
         print(f"❌ Error fetch latest {type_key}: {e}")
     return None, None, None
 
+def next_ky_str(ky):
+    """'00874 (08/09/2026)' -> '00875'.
+
+    Bộ số gợi ý luôn dành cho kỳ SẮP xổ, không phải kỳ vừa công bố.
+    Gắn nhầm nhãn kỳ vừa xổ sẽ làm compare/performance chấm điểm sai:
+    _ml_pick loại trừ đúng các số của kỳ đó nên điểm bị ép về 0.
+    """
+    try:
+        return str(int(str(ky).split(" ")[0]) + 1).zfill(5)
+    except (ValueError, TypeError, AttributeError):
+        return str(ky).split(" ")[0] if ky else "?"
+
 
 # ==========================================
 # HANDLERS
@@ -739,7 +871,7 @@ async def run_pick(interaction, type_key, so_luong):
     cfg = CONFIGS[type_key]
     await interaction.response.defer(thinking=True)
     try:
-        numbers, specials, days_since, pair_freq = get_combined_data(type_key)
+        numbers, specials, days_since, pair_freq = await asyncio.to_thread(get_combined_data, type_key)
         if len(numbers) < cfg["k"] * 5:
             await interaction.followup.send("⚠️ Không lấy được dữ liệu!")
             return
@@ -773,14 +905,15 @@ async def run_pick(interaction, type_key, so_luong):
         sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
-        await interaction.followup.send(embed=embed, view=make_button(sms))
+        await interaction.followup.send(embed=embed, view=await make_button(sms))
 
         try:
             ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
             time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
-            ky_latest, _, _ = fetch_latest_result(type_key)
-            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
-            save_suggestions(type_key, ky_save, ngay_str, time_str_m, all_sets, source="manual")
+            ky_latest, _, _ = await asyncio.to_thread(fetch_latest_result, type_key)
+            ky_save = next_ky_str(ky_latest)
+            await asyncio.to_thread(save_suggestions, type_key, ky_save, ngay_str,
+                                    time_str_m, all_sets, "manual")
         except Exception as e2:
             print(f"⚠️ save manual suggestions: {e2}")
     except Exception as e:
@@ -788,28 +921,37 @@ async def run_pick(interaction, type_key, so_luong):
 
 async def run_bao535(interaction, bao_key, so_bo):
     info = BAO_535[bao_key]
-    so_bo_max = max_bo(info["gia"], "535")
+    so_bo_ngay = max_bo(info["gia"], "535")
+    so_bo_max = max_bo_moi_lenh(info["gia"], "535")
     if so_bo > so_bo_max:
+        them = (f"\nHạn mức ngày cho phép {so_bo_ngay} bộ — đặt tiếp bằng lệnh khác."
+                if so_bo_max < so_bo_ngay else "")
         await interaction.response.send_message(
-            f"⚠️ {info['label']} gia {fmt_gia(info['gia'])}/bộ → tối đa **{so_bo_max} bộ** ({fmt_gia(GIOI_HAN_NGAY['535'])}/ngày)",
+            f"⚠️ {info['label']} giá {fmt_gia(info['gia'])}/bộ → tối đa "
+            f"**{so_bo_max} bộ mỗi lệnh**{them}",
             ephemeral=True)
         return
     await interaction.response.defer(thinking=True)
     try:
-        numbers, specials, days_since, pair_freq = get_combined_data("535")
+        numbers, specials, days_since, pair_freq = await asyncio.to_thread(get_combined_data, "535")
         freq = compute_freq(numbers, 35)
         sp_freq = compute_freq(specials, 12) if specials else {i: 1 for i in range(1, 13)}
         sorted_sp = sorted(sp_freq.items(), key=lambda x: x[1], reverse=True)
 
         embed = discord.Embed(title=f"🎰 {info['label']} — Lotto 5/35", color=0x9B59B6)
-        embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY['535'])} / {fmt_gia(info['gia'])})", inline=False)
+        gh = f"Tối đa {so_bo_max} bộ/lệnh · hạn mức ngày {fmt_gia(GIOI_HAN_NGAY['535'])} = {so_bo_ngay} bộ"
+        if so_bo_max < so_bo_ngay:
+            gh += "\n💡 Muốn đặt thêm thì gọi lệnh nữa — bot KHÔNG tự cộng dồn chi tiêu trong ngày"
+        embed.add_field(name="Giới hạn", value=gh, inline=False)
 
         last_draw = list(numbers[-5:]) if len(numbers) >= 5 else None
-        seen, s_parts, lines = set(), [], []
+        # seen (set) dùng để chống trùng; bo_da_sinh (list) giữ đúng thứ tự đã hiển thị
+        seen, bo_da_sinh, s_parts, lines = set(), [], [], []
         for i in range(so_bo):
             if info["type"] == "bc":
                 main_nums = generate_nums(freq, 35, info["n_main"], seen, days_since, pair_freq, last_draw, type_key="535")
                 seen.add(tuple(main_nums))
+                bo_da_sinh.append(main_nums)
                 sp_pool = [n for n, _ in sorted_sp]
                 sp_w = [c for _, c in sorted_sp]
                 special = weighted_pick(sp_pool, sp_w, 1)[0]
@@ -821,6 +963,7 @@ async def run_bao535(interaction, bao_key, so_bo):
             else:
                 main_nums = generate_nums(freq, 35, 5, seen, days_since, pair_freq, last_draw, type_key="535")
                 seen.add(tuple(main_nums))
+                bo_da_sinh.append(main_nums)
                 specials_picked = [n for n, _ in sorted_sp[:info["n_sp"]]]
                 main_str = " ".join(f"{n:02d}" for n in main_nums)
                 sp_str = f"{specials_picked[0]:02d}" + (" " + " ".join(f"{n:02d}" for n in specials_picked[1:]) if len(specials_picked) > 1 else "")
@@ -833,18 +976,19 @@ async def run_bao535(interaction, bao_key, so_bo):
         add_fields_chunked(embed, lines)
         embed.add_field(name="Tổng tiền", value=f"{fmt_gia(tong)} / {fmt_gia(GIOI_HAN_NGAY['535'])} hạn mức ngày", inline=False)
         sms = f"535 K1 {bao_key.upper()} " + " ".join(s_parts)
+        print(f"📱 SMS {bao_key} x{so_bo}: {len(sms)} ký tự (~{len(sms)//153 + 1} đoạn)")
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
-        await interaction.followup.send(embed=embed, view=make_button(sms))
+        await interaction.followup.send(embed=embed, view=await make_button(sms))
 
         try:
             ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
             time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
-            ky_latest, _, _ = fetch_latest_result("535")
-            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
-            save_suggestions("535", ky_save, ngay_str, time_str_m,
-                             [(nums, None) for nums in seen],
-                             source=f"manual_bao535_{bao_key}")
+            ky_latest, _, _ = await asyncio.to_thread(fetch_latest_result, "535")
+            ky_save = next_ky_str(ky_latest)
+            await asyncio.to_thread(save_suggestions, "535", ky_save, ngay_str, time_str_m,
+                                    [(nums, None) for nums in bo_da_sinh],
+                                    f"manual_bao535_{bao_key}")
         except Exception as e2:
             print(f"⚠️ save bao535 suggestions: {e2}")
     except Exception as e:
@@ -854,26 +998,35 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
     info = BAO_645_655[bao_key]
     gia = info[f"gia_{type_key}"]
     cfg = CONFIGS[type_key]
-    so_bo_max = max_bo(gia, type_key)
+    so_bo_ngay = max_bo(gia, type_key)
+    so_bo_max = max_bo_moi_lenh(gia, type_key)
     if so_bo > so_bo_max:
+        them = (f"\nHạn mức ngày cho phép {so_bo_ngay} bộ — đặt tiếp bằng lệnh khác."
+                if so_bo_max < so_bo_ngay else "")
         await interaction.response.send_message(
-            f"⚠️ {info['label']} giá {fmt_gia(gia)}/bộ → tối đa **{so_bo_max} bộ** ({fmt_gia(GIOI_HAN_NGAY[type_key])}/ngày)",
+            f"⚠️ {info['label']} giá {fmt_gia(gia)}/bộ → tối đa "
+            f"**{so_bo_max} bộ mỗi lệnh**{them}",
             ephemeral=True)
         return
     await interaction.response.defer(thinking=True)
     try:
-        numbers, _, days_since, pair_freq = get_combined_data(type_key)
+        numbers, _, days_since, pair_freq = await asyncio.to_thread(get_combined_data, type_key)
         freq = compute_freq(numbers, cfg["n"])
 
         embed = discord.Embed(title=f"🎰 {info['label']} — {cfg['label']}", color=0x9B59B6)
-        embed.add_field(name="Giới hạn ngày", value=f"Tối đa {so_bo_max} bộ ({fmt_gia(GIOI_HAN_NGAY[type_key])} / {fmt_gia(gia)})", inline=False)
+        gh = f"Tối đa {so_bo_max} bộ/lệnh · hạn mức ngày {fmt_gia(GIOI_HAN_NGAY[type_key])} = {so_bo_ngay} bộ"
+        if so_bo_max < so_bo_ngay:
+            gh += "\n💡 Muốn đặt thêm thì gọi lệnh nữa — bot KHÔNG tự cộng dồn chi tiêu trong ngày"
+        embed.add_field(name="Giới hạn", value=gh, inline=False)
 
         k = cfg["k"]
         last_draw = list(numbers[-k:]) if len(numbers) >= k else None
-        seen, s_parts, lines = set(), [], []
+        # seen (set) dùng để chống trùng; bo_da_sinh (list) giữ đúng thứ tự đã hiển thị
+        seen, bo_da_sinh, s_parts, lines = set(), [], [], []
         for i in range(so_bo):
             nums = generate_nums(freq, cfg["n"], info["n"], seen, days_since, pair_freq, last_draw, type_key=type_key)
             seen.add(tuple(nums))
+            bo_da_sinh.append(nums)
             s_parts.append("S " + " ".join(f"{n:02d}" for n in nums))
             disp = " ".join(f"`{n:02d}`" for n in nums)
             lines.append(f"**Bộ {i+1}:** {disp}")
@@ -884,16 +1037,16 @@ async def run_bao645655(interaction, type_key, bao_key, so_bo):
         sms = f"{cfg['sms_prefix']} K1 {bao_key.upper()} " + " ".join(s_parts)
         embed.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
         embed.timestamp = datetime.now(timezone.utc)
-        await interaction.followup.send(embed=embed, view=make_button(sms))
+        await interaction.followup.send(embed=embed, view=await make_button(sms))
 
         try:
             ngay_str = datetime.now(VN_TZ).strftime("%d/%m/%Y")
             time_str_m = datetime.now(VN_TZ).strftime("%H:%M")
-            ky_latest, _, _ = fetch_latest_result(type_key)
-            ky_save = ky_latest.split(" ")[0] if ky_latest else "?"
-            save_suggestions(type_key, ky_save, ngay_str, time_str_m,
-                             [(nums, None) for nums in seen],
-                             source=f"manual_bao{type_key}_{bao_key}")
+            ky_latest, _, _ = await asyncio.to_thread(fetch_latest_result, type_key)
+            ky_save = next_ky_str(ky_latest)
+            await asyncio.to_thread(save_suggestions, type_key, ky_save, ngay_str, time_str_m,
+                                    [(nums, None) for nums in bo_da_sinh],
+                                    f"manual_bao{type_key}_{bao_key}")
         except Exception as e2:
             print(f"⚠️ save bao suggestions: {e2}")
     except Exception as e:
@@ -913,13 +1066,12 @@ async def post_result(type_key):
     await channel.send(f"⏳ Dang lay ket qua **{cfg['label']}**...")
 
     _cache.pop(type_key, None)  # Xóa cache để fetch mới
-    _cache.pop(f"text_{type_key}", None)
 
     ky, numbers, special = None, None, None
     today_iso = datetime.now(VN_TZ).strftime("%Y-%m-%d")
 
     for attempt in range(6):
-        ky, numbers, special = fetch_latest_result(type_key)
+        ky, numbers, special = await asyncio.to_thread(fetch_latest_result, type_key)
         if numbers:
             # Worker trả is_today qua ky string "00677 (03/06/2026)"
             m_date = re.search(r'(\d{2})/(\d{2})/(\d{4})', ky or "")
@@ -940,24 +1092,13 @@ async def post_result(type_key):
         await channel.send(f"⚠️ Không lấy được kết quả {cfg['label']}!")
         return
 
-    save_result(type_key, ngay, ky, numbers, special)
+    await asyncio.to_thread(save_result, type_key, ngay, ky, numbers, special)
 
     # So sánh với TẤT CẢ gợi ý đã lưu cho kỳ này (mọi nguồn)
-    compare_result = compare_with_suggestions(type_key, ky, numbers, special)
+    compare_result = await asyncio.to_thread(compare_with_suggestions, type_key, ky, numbers, special)
 
     # Tính performance từ chính các suggestions của kỳ này (label đã đúng nghĩa)
-    try:
-        ky_clean = str(ky).split(" ")[0].strip().zfill(5)
-        wb_perf = get_sheet()
-        ws_perf = wb_perf.worksheet("suggestions")
-        all_rows = ws_perf.get_all_values()
-        this_ky_rows = [r for r in all_rows[1:] if len(r) >= 5
-                       and r[0] == type_key
-                       and r[1].strip().split(" ")[0].zfill(5) == ky_clean]
-        if this_ky_rows:
-            save_performance(type_key, ky_clean, ngay, numbers, this_ky_rows)
-    except Exception as e:
-        print(f"⚠️ performance tracking error: {e}")
+    await asyncio.to_thread(track_performance, type_key, ky, ngay, numbers)
 
     embed = discord.Embed(title=f"🎰 Kết quả {cfg['label']} — {ngay}", color=0xE74C3C)
     embed.add_field(name="Kỳ", value=f"**{ky}**", inline=True)
@@ -970,36 +1111,52 @@ async def post_result(type_key):
         "scheduler": "🤖 Gợi ý tự động",
         "manual": "👤 Gợi ý thủ công (/535, /645, /655)",
     }
+    # Giới hạn Discord: field ≤ 1024 ký tự, TOÀN embed ≤ 6000, ≤ 25 field.
+    # 535 có tới 17 nguồn khả dĩ (scheduler + manual + 15 loại bao); nếu đổ hết
+    # ra thì từ 6 nguồn là vượt 6000 và cả bài báo kết quả ném HTTPException.
     if compare_result:
-        ky_clean, by_source = compare_result
-        for source, items in by_source.items():
+        _, by_source = compare_result
+        MAX_EMBED, MAX_FIELD, MAX_DONG = 5200, 1000, 8
+        da_dung = len(embed.title or "") + sum(
+            len(f.name or "") + len(f.value or "") for f in embed.fields)
+        nguon_bo_qua = 0
+
+        for source, items in sorted(by_source.items()):
             label = SOURCE_LABELS.get(source, f"🎯 {source}")
+            tong_trung = sum(len(matched) for _, matched in items)
             lines = []
-            total_matched = 0
-            for nums, matched in items:
+            for nums, matched in items[:MAX_DONG]:
                 nums_disp = " ".join(f"`{n:02d}`" for n in nums)
                 if matched:
                     matched_disp = " ".join(f"`{n:02d}`" for n in matched)
                     lines.append(f"✅ {nums_disp} → trúng **{len(matched)}**: {matched_disp}")
-                    total_matched += len(matched)
                 else:
                     lines.append(f"❌ {nums_disp} → 0 số")
-            # Discord field value giới hạn 1024 ký tự, cắt nếu cần
-            value = "\n".join(lines)
-            if len(value) > 1000:
-                value = value[:1000] + "\n... (còn nữa)"
+            if len(items) > MAX_DONG:
+                lines.append(f"… còn {len(items) - MAX_DONG} bộ nữa")
+            lines.append(f"**Trung bình {tong_trung / len(items):.2f} số/bộ**")
+
+            name = f"📊 {label} ({len(items)} bộ)"
+            value = "\n".join(lines)[:MAX_FIELD]
+            if da_dung + len(name) + len(value) > MAX_EMBED or len(embed.fields) >= 20:
+                nguon_bo_qua += 1
+                continue
+            da_dung += len(name) + len(value)
+            embed.add_field(name=name, value=value, inline=False)
+
+        if nguon_bo_qua:
             embed.add_field(
-                name=f"📊 {label} ({len(items)} bộ)",
-                value=value,
-                inline=False
-            )
+                name="…",
+                value=f"Còn {nguon_bo_qua} nguồn gợi ý nữa, không hiển thị hết "
+                      f"(Discord giới hạn 6000 ký tự mỗi embed)",
+                inline=False)
 
     embed.timestamp = datetime.now(timezone.utc)
     await channel.send(embed=embed)
 
     # Alert kỳ Chia giải Độc Đắc (chỉ 535): jackpot > 12 tỷ → kỳ 21h ngày mai chia giải
     if type_key == "535":
-        jackpot = get_jackpot_535()
+        jackpot = await asyncio.to_thread(get_jackpot_535)
         if jackpot and jackpot > 12_000_000_000:
             jp_ty = jackpot / 1_000_000_000
             alert = discord.Embed(
@@ -1018,7 +1175,7 @@ async def post_result(type_key):
 
     # Gợi ý 5 bộ số kỳ tiếp
     await asyncio.sleep(2)
-    all_nums, all_sp, days_since, pair_freq = get_combined_data(type_key)
+    all_nums, all_sp, days_since, pair_freq = await asyncio.to_thread(get_combined_data, type_key)
     freq = compute_freq(all_nums, cfg["n"])
     sp_freq = compute_freq(all_sp, cfg.get("special_n", 55)) if all_sp else None
 
@@ -1041,29 +1198,44 @@ async def post_result(type_key):
     sms = sms_basic_535(all_sets) if type_key == "535" else sms_basic_645_655(cfg["sms_prefix"], all_sets)
     embed2.set_footer(text="Bộ số là có tính toán, nhưng không đảm bảo trúng 100%")
     embed2.timestamp = datetime.now(timezone.utc)
-    await channel.send(embed=embed2, view=make_button(sms))
+    await channel.send(embed=embed2, view=await make_button(sms))
 
     # Lưu gợi ý vào Sheets để so sánh kỳ sau
     # QUAN TRỌNG: all_sets là gợi ý cho KỲ TIẾP THEO, không phải kỳ vừa công bố (ky)
     # Tính kỳ tiếp theo = ky + 1 (giữ định dạng zero-padded)
     time_str = datetime.now(VN_TZ).strftime("%H:%M")
-    try:
-        ky_num = int(ky.split(" ")[0])
-        next_ky = str(ky_num + 1).zfill(5)
-    except Exception:
-        next_ky = ky  # fallback nếu parse lỗi
-    save_suggestions(type_key, next_ky, ngay, time_str, all_sets, source="scheduler")
+    await asyncio.to_thread(save_suggestions, type_key, next_ky_str(ky),
+                            ngay, time_str, all_sets, "scheduler")
+
+_da_chay = set()  # {(ngày, type_key, giờ, phút)} — chống chạy lại cùng một lịch
 
 async def scheduler():
+    """Khớp theo cửa sổ 10 phút thay vì đúng 1 phút.
+
+    Cách cũ so h == gio and m == phut: chỉ cần vòng lặp trễ quá 60s (event loop
+    bị chặn, hoặc bot restart ngay phút đó) là lỡ hẳn kỳ. _da_chay đảm bảo mỗi
+    lịch chỉ chạy 1 lần/ngày kể cả khi có nhiều scheduler cùng sống.
+    """
     print("⏰ Scheduler started")
     while True:
         now = datetime.now(VN_TZ)
-        wd, h, m = now.weekday(), now.hour, now.minute
+        hom_nay = now.date().isoformat()
+        _da_chay.difference_update([k for k in _da_chay if k[0] != hom_nay])
+
         for type_key, lich in LICH_XO.items():
             for (ngay_xo, gio, phut) in lich:
-                if wd == ngay_xo and h == gio and m == phut:
+                if now.weekday() != ngay_xo:
+                    continue
+                key = (hom_nay, type_key, gio, phut)
+                if key in _da_chay:
+                    continue
+                hen = now.replace(hour=gio, minute=phut, second=0, microsecond=0)
+                tre = (now - hen).total_seconds()
+                if 0 <= tre <= 600:  # trong vòng 10 phút sau giờ hẹn
+                    _da_chay.add(key)
+                    print(f"⏰ Trigger {type_key} ({gio:02d}:{phut:02d}, trễ {int(tre)}s)")
                     asyncio.create_task(post_result(type_key))
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
 
 # ==========================================
 # SLASH COMMANDS
@@ -1083,54 +1255,42 @@ async def cmd_645(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
 async def cmd_655(interaction, so_luong: app_commands.Range[int, 1, 10] = 1):
     await run_pick(interaction, "655", so_luong)
 
-# Bao 535
+# Sinh choice từ chính bảng giá thay vì gõ tay — nhãn "max N bộ" hardcode đã lệch
+# một lần khi hạn mức 535 đổi từ 1tr lên 2,5tr.
 bao535_choices = [
-    app_commands.Choice(name="BC4 – Bao 4 số chính (310.000d) – max 3 bộ",    value="bc4"),
-    app_commands.Choice(name="BC6 – Bao 6 số chính (60.000d) – max 16 bộ",    value="bc6"),
-    app_commands.Choice(name="BC7 – Bao 7 số chính (210.000d) – max 4 bộ",    value="bc7"),
-    app_commands.Choice(name="BC8 – Bao 8 số chính (560.000d) – max 1 bộ",    value="bc8"),
-    app_commands.Choice(name="BD2 – Bao 2 số đặc biệt (20.000d) – max 50 bộ", value="bd2"),
-    app_commands.Choice(name="BD3 – Bao 3 số đặc biệt (30.000d) – max 33 bộ", value="bd3"),
-    app_commands.Choice(name="BD4 – Bao 4 số đặc biệt (40.000d) – max 25 bộ", value="bd4"),
-    app_commands.Choice(name="BD5 – Bao 5 số đặc biệt (50.000d) – max 20 bộ", value="bd5"),
-    app_commands.Choice(name="BD6 – Bao 6 số đặc biệt (60.000d) – max 16 bộ", value="bd6"),
-    app_commands.Choice(name="BD7 – Bao 7 số đặc biệt (70.000d) – max 14 bộ", value="bd7"),
-    app_commands.Choice(name="BD8 – Bao 8 số đặc biệt (80.000d) – max 12 bộ", value="bd8"),
-    app_commands.Choice(name="BD9 – Bao 9 số đặc biệt (90.000d) – max 11 bộ", value="bd9"),
-    app_commands.Choice(name="BD10 – Bao 10 số đặc biệt (100.000d) – max 10 bộ", value="bd10"),
-    app_commands.Choice(name="BD11 – Bao 11 số đặc biệt (110.000d) – max 9 bộ",  value="bd11"),
-    app_commands.Choice(name="BD12 – Bao 12 số đặc biệt (120.000d) – max 8 bộ",  value="bd12"),
+    app_commands.Choice(name=nhan_bao(v["label"], v["gia"], "535"), value=k)
+    for k, v in BAO_535.items()
 ]
+MAX_BO_535 = max(max_bo_moi_lenh(v["gia"], "535") for v in BAO_535.values())
 @tree.command(name="bao535", description="Bao số Lotto 5/35 kèm SMS")
 @app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao535_choices)
-async def cmd_bao535(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 50] = 1):
+async def cmd_bao535(interaction, loai: app_commands.Choice[str],
+                     so_bo: app_commands.Range[int, 1, MAX_BO_535] = 1):
     await run_bao535(interaction, loai.value, so_bo)
 
 bao645_choices = [
-    app_commands.Choice(name="B5  – Bao 5 số (400.000d) – max 5 bộ",    value="b5"),
-    app_commands.Choice(name="B7  – Bao 7 số (70.000d) – max 30 bộ",    value="b7"),
-    app_commands.Choice(name="B8  – Bao 8 số (280.000d) – max 7 bộ",    value="b8"),
-    app_commands.Choice(name="B9  – Bao 9 số (840.000d) – max 2 bộ",    value="b9"),
-    app_commands.Choice(name="B10 – Bao 10 số (2.100.000d) – max 1 bộ", value="b10"),
+    app_commands.Choice(name=nhan_bao(v["label"], v["gia_645"], "645"), value=k)
+    for k, v in BAO_645_655.items()
 ]
+MAX_BO_645 = max(max_bo_moi_lenh(v["gia_645"], "645") for v in BAO_645_655.values())
 @tree.command(name="bao645", description="Bao số Mega 6/45 kèm SMS")
 @app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao645_choices)
-async def cmd_bao645(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 30] = 1):
+async def cmd_bao645(interaction, loai: app_commands.Choice[str],
+                     so_bo: app_commands.Range[int, 1, MAX_BO_645] = 1):
     await run_bao645655(interaction, "645", loai.value, so_bo)
 
 bao655_choices = [
-    app_commands.Choice(name="B5  – Bao 5 số (500.000d) – max 4 bộ",    value="b5"),
-    app_commands.Choice(name="B7  – Bao 7 số (70.000d) – max 30 bộ",    value="b7"),
-    app_commands.Choice(name="B8  – Bao 8 số (280.000d) – max 7 bộ",    value="b8"),
-    app_commands.Choice(name="B9  – Bao 9 số (840.000d) – max 2 bộ",    value="b9"),
-    app_commands.Choice(name="B10 – Bao 10 số (2.100.000d) – max 1 bộ", value="b10"),
+    app_commands.Choice(name=nhan_bao(v["label"], v["gia_655"], "655"), value=k)
+    for k, v in BAO_645_655.items()
 ]
+MAX_BO_655 = max(max_bo_moi_lenh(v["gia_655"], "655") for v in BAO_645_655.values())
 @tree.command(name="bao655", description="Bao số Power 6/55 kèm SMS")
 @app_commands.describe(loai="Chọn loại bao số", so_bo="Số bộ muốn mua")
 @app_commands.choices(loai=bao655_choices)
-async def cmd_bao655(interaction, loai: app_commands.Choice[str], so_bo: app_commands.Range[int, 1, 30] = 1):
+async def cmd_bao655(interaction, loai: app_commands.Choice[str],
+                     so_bo: app_commands.Range[int, 1, MAX_BO_655] = 1):
     await run_bao645655(interaction, "655", loai.value, so_bo)
 
 # ==========================================
@@ -1146,11 +1306,34 @@ async def cmd_test(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"❌ Loi: {e}")
 
+_khoi_dong_xong = False
+
 @client.event
 async def on_ready():
-    await tree.sync()
+    """on_ready fire lại sau MỖI lần reconnect. Không chặn thì mỗi lần reconnect
+    lại tạo thêm 1 scheduler → báo kết quả trùng, và tree.sync() dễ dính rate limit."""
+    global _khoi_dong_xong
     print(f"✅ Bot da online: {client.user}")
+    if _khoi_dong_xong:
+        print("↩️ Reconnect — scheduler đã chạy rồi, bỏ qua")
+        return
+    _khoi_dong_xong = True
+    await tree.sync()
     print("Commands: /535 /645 /655 /bao535 /bao645 /bao655")
     asyncio.create_task(scheduler())
 
+def kiem_tra_env():
+    """Báo lỗi rõ ràng thay vì để discord.py ném 'Improper token' khó hiểu."""
+    thieu = []
+    if not TOKEN:
+        thieu.append("DISCORD_TOKEN")
+    if not DISCORD_CHANNEL_ID:
+        thieu.append("DISCORD_CHANNEL_ID")
+    if thieu:
+        raise SystemExit(f"❌ Thiếu biến môi trường: {', '.join(thieu)}")
+    for ten in ("GOOGLE_CREDENTIALS_B64", "GOOGLE_SHEET_ID"):
+        if not os.environ.get(ten):
+            print(f"⚠️ Thiếu {ten} — bot vẫn chạy nhưng KHÔNG lưu/đọc được Google Sheets")
+
+kiem_tra_env()
 client.run(TOKEN)
