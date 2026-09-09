@@ -12,7 +12,7 @@
 Bot phân tích hàng nghìn kỳ xổ lịch sử để tìm ra các xu hướng — số nào đang "nóng", số nào "lâu chưa ra", và các cặp số hay xuất hiện cùng nhau — từ đó tạo ra bộ số tối ưu nhất cho bạn.
 
 Hỗ trợ đầy đủ 3 loại vé:
-- 🟢 **Lotto 5/35** — xổ 2 lần/ngày (13:00 & 21:00) vào Thứ 2, 4, 6
+- 🟢 **Lotto 5/35** — xổ 2 lần/ngày (13:00 & 21:00), **tất cả các ngày trong tuần**
 - 🔴 **Mega 6/45** — xổ vào Thứ 4, 6, Chủ nhật lúc 18:05
 - 🟡 **Power 6/55** — xổ vào Thứ 3, 5, 7 lúc 18:05
 
@@ -30,7 +30,7 @@ Muốn tăng xác suất trúng? Bot hỗ trợ toàn bộ hình thức bao số
 Đúng giờ xổ, bot tự động lấy kết quả mới nhất và gửi lên kênh Discord — kèm theo **gợi ý 5 bộ số cho kỳ tiếp theo** luôn, không cần làm gì cả.
 
 ### 💰 Kiểm soát chi tiêu tự động
-Bot biết giới hạn mua vé của từng loại (5/35: 1 triệu/ngày, 6/45 & 6/55: 2.1 triệu/ngày) và tự động cảnh báo nếu bạn nhập quá giới hạn — tránh mua nhầm vượt hạn mức.
+Bot biết giới hạn mua vé của từng loại (5/35: 2,5 triệu/ngày, 6/45 & 6/55: 2,1 triệu/ngày) và tự động cảnh báo nếu bạn nhập quá giới hạn — tránh mua nhầm vượt hạn mức.
 
 ---
 

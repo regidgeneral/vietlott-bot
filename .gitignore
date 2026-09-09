@@ -1,0 +1,14 @@
+# Dữ liệu tải từ Google Sheets để phân tích — KHÔNG commit, repo này là public
+scripts/analysis/sheet_*.csv
+*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Bí mật
+.env
+*credentials*.json
+service_account*.json
