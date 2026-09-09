@@ -44,6 +44,19 @@ def get_sheet():
     gc = gspread.authorize(creds)
     return gc.open_by_key(os.environ.get("GOOGLE_SHEET_ID", ""))
 
+def parse_score(s):
+    """Đọc số từ Sheets, chịu được cả '0.8' lẫn '0,8'.
+
+    get_all_values() trả về chuỗi ĐÃ format theo locale của sheet (tiếng Việt
+    dùng dấu phẩy thập phân), nên float('0,8') ném ValueError. Trước đây lỗi
+    này bị nuốt, chỉ các giá trị NGUYÊN lọt qua — mà phần lớn là 1.0 — nên
+    avg bị thổi phồng và w_recent bị đẩy lên oan.
+    """
+    try:
+        return float(str(s).strip().replace(",", "."))
+    except (ValueError, TypeError):
+        return None
+
 def get_adaptive_weights(type_key):
     """
     Đọc performance sheet, tính weight tối ưu.
@@ -72,9 +85,13 @@ def get_adaptive_weights(type_key):
 
         scores = []
         for row in scheduler_rows[-30:]:  # 30 kỳ gần nhất
-            try:
-                scores.append(float(row[4]))
-            except: continue
+            v = parse_score(row[4])
+            if v is not None:
+                scores.append(v)
+
+        if not scores:
+            print(f"  {type_key}: khong doc duoc diem nao, using defaults")
+            return DEFAULT_WEIGHT_RECENT, DEFAULT_WEIGHT_MID, DEFAULT_WEIGHT_OLD
 
         avg = sum(scores) / len(scores)
         print(f"  {type_key}: avg_matched={round(avg,2)} (baseline={round(baseline,2)}, n={len(scores)} kỳ)")

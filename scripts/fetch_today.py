@@ -25,9 +25,12 @@ def parse_results(soup, today_str, type_key):
     text = soup.get_text(" ", strip=True)
     results = []
 
-    # Format: "ky ́ #662 nga ̀y 25/05/2026 - Lu ́c 21:00 01 06 09 15 23 08"
+    # 535 xổ 2 lần/ngày nên có giờ:
+    #   "kỳ #662 ngày 25/05/2026 - Lúc 21:00 01 06 09 15 23 08"
+    # 645/655 xổ 1 lần/ngày, KHÔNG có phần "- Lúc":
+    #   "kỳ #1559 ngày 06/09/2026 09 14 22 26 27 40"
     pattern = re.compile(
-        r'kỳ\s+#(\d+)\s+ngày\s+(\d{2}/\d{2}/\d{4})\s*-\s*Lúc\s+(\d+:\d+)\s+((?:\d+\s*){4,8})',
+        r'kỳ\s+#(\d+)\s+ngày\s+(\d{2}/\d{2}/\d{4})\s*(?:-\s*Lúc\s+(\d+:\d+))?\s+((?:\d+\s*){4,8})',
         re.IGNORECASE
     )
     num_count = {"535": 6, "645": 6, "655": 7}[type_key]
@@ -35,7 +38,7 @@ def parse_results(soup, today_str, type_key):
     for m in pattern.finditer(text):
         ky = m.group(1).zfill(5)
         date_raw = m.group(2)
-        time_raw = m.group(3)
+        time_raw = m.group(3) or ""  # 645/655 khong co gio
         nums_raw = [int(x) for x in m.group(4).split() if x.isdigit()]
         if len(nums_raw) < num_count:
             continue
